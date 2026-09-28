@@ -1,26 +1,43 @@
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-
-import HomeScreen from '../screens/HomeScreen';
-import DetailsScreen from '../screens/DetailsScreen';
-import type { RootStackParamList } from './types';
+import TabNavigator from '@/navigation/TabNavigator';
+import EditorScreen from '@/screens/EditorScreen';
+import ComponentEditScreen from '@/screens/ComponentEditScreen';
+import ActionEditScreen from '@/screens/ActionEditScreen';
+import PreviewScreen from '@/screens/PreviewScreen';
+import ProjectSettingsScreen from '@/screens/ProjectSettingsScreen';
+import BuildScreen from '@/screens/BuildScreen';
+import { useTheme } from '@/hooks/useTheme';
+import type { RootStackParamList } from '@/navigation/types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-export default function RootNavigator() {
+export default function RootNavigator(): React.ReactElement {
+  const { colors } = useTheme();
+
   return (
-    <NavigationContainer>
-      <Stack.Navigator
-        initialRouteName="Home"
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: '#F8FAFC' },
-        }}
-      >
-        <Stack.Screen name="Home" component={HomeScreen} />
-        <Stack.Screen name="Details" component={DetailsScreen} />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: colors.background },
+        animation: 'slide_from_right',
+      }}
+    >
+      <Stack.Screen name="Tabs" component={TabNavigator} />
+      <Stack.Screen name="Editor" component={EditorScreen} />
+      <Stack.Screen name="ComponentEdit" component={ComponentEditScreen} />
+      <Stack.Screen name="ActionEdit" component={ActionEditScreen} />
+      <Stack.Screen
+        name="Preview"
+        component={PreviewScreen}
+        options={{ animation: 'slide_from_bottom' }}
+      />
+      <Stack.Screen name="ProjectSettings" component={ProjectSettingsScreen} />
+      <Stack.Screen
+        name="Build"
+        component={BuildScreen}
+        options={{ animation: 'slide_from_bottom' }}
+      />
+    </Stack.Navigator>
   );
 }

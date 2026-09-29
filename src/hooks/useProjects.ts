@@ -4,6 +4,7 @@ import RNFS from 'react-native-fs';
 import type { Project, ProjectIndex, ProjectMeta } from '@/types/project';
 import { PROJECT_FILE_VERSION } from '@/types/project';
 import { toProjectMeta } from '@/utils/format';
+import { migrateProject } from '@/utils/migrate';
 
 const INDEX_KEY = '@pagebuilder/project-index';
 const PROJECTS_DIR = `${RNFS.DocumentDirectoryPath}/projects`;
@@ -52,7 +53,18 @@ export async function loadProjectFile(id: string): Promise<Project> {
   if (!parsed || !parsed.project) {
     throw new Error('Project file is corrupted.');
   }
-  return parsed.project;
+
+  const migrated = migrateProject(parsed.project);
+
+  if (migrated !== parsed.project) {
+    const envelope = { version: PROJECT_FILE_VERSION, project: migrated };
+    await RNFS.writeFile(path, JSON.stringify(envelope), 'utf8');
+    const index = await readIndex();
+    const next = upsertMeta(index, toProjectMeta(migrated));
+    await writeIndex(next);
+  }
+
+  return migrated;
 }
 
 export async function saveProjectFile(project: Project): Promise<void> {

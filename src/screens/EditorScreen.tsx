@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -21,10 +21,9 @@ import ErrorState from '@/components/ErrorState';
 import EmptyState from '@/components/EmptyState';
 import PageTabBar from '@/components/PageTabBar';
 import ComponentListItem from '@/components/ComponentListItem';
-import Card from '@/components/Card';
 import { useProject } from '@/hooks/useProject';
+import { saveProjectFile } from '@/hooks/useProjects';
 import { useProjectStore } from '@/store/useProjectStore';
-import { createComponent } from '@/utils/factory';
 import type { ComponentType, PageComponent } from '@/types/component';
 import { COMPONENT_TYPE_ICONS, COMPONENT_TYPE_LABELS } from '@/types/component';
 import type { RootStackParamList } from '@/navigation/types';
@@ -43,6 +42,8 @@ const COMPONENT_TYPES: ComponentType[] = [
   'divider',
 ];
 
+const AUTOSAVE_DELAY_MS = 500;
+
 export default function EditorScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Rt>();
@@ -50,23 +51,78 @@ export default function EditorScreen(): React.ReactElement {
   const { project, loading, error, reload } = useProject(projectId);
 
   const storeProject = useProjectStore(s => s.project);
+  const dirty = useProjectStore(s => s.dirty);
   const setProject = useProjectStore(s => s.setProject);
+  const markClean = useProjectStore(s => s.markClean);
   const activePageId = useProjectStore(s => s.activePageId);
   const setActivePage = useProjectStore(s => s.setActivePage);
   const addPage = useProjectStore(s => s.addPage);
   const addComponent = useProjectStore(s => s.addComponent);
   const removeComponent = useProjectStore(s => s.removeComponent);
   const reorderComponents = useProjectStore(s => s.reorderComponents);
-  const toggleComponentVisibility = useProjectStore(s => s.toggleComponentVisibility);
-  const renameProject = useProjectStore(s => s.renameProject);
+  const toggleComponentVisibility = useProjectStore(
+    s => s.toggleComponentVisibility,
+  );
 
   const [showPicker, setShowPicker] = useState<boolean>(false);
+  const [saving, setSaving] = useState<boolean>(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasHydratedRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (project) {
       setProject(project);
+      hasHydratedRef.current = true;
     }
   }, [project, setProject]);
+
+  useEffect(() => {
+    if (!hasHydratedRef.current) return;
+    if (!dirty) return;
+    if (!storeProject) return;
+
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+
+    saveTimerRef.current = setTimeout(() => {
+      setSaving(true);
+      saveProjectFile(storeProject)
+        .then(() => {
+          markClean();
+        })
+        .catch((err: unknown) => {
+          const msg =
+            err instanceof Error ? err.message : 'Autosave failed.';
+          Toast.show({
+            type: 'error',
+            text1: 'Could not save',
+            text2: msg,
+          });
+        })
+        .finally(() => {
+          setSaving(false);
+          saveTimerRef.current = null;
+        });
+    }, AUTOSAVE_DELAY_MS);
+
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+    };
+  }, [dirty, storeProject, markClean]);
+
+  useEffect(() => {
+    return () => {
+      const current = useProjectStore.getState().project;
+      const isDirty = useProjectStore.getState().dirty;
+      if (current && isDirty) {
+        void saveProjectFile(current);
+      }
+    };
+  }, []);
 
   const activePage = useMemo(() => {
     if (!storeProject) return null;
@@ -83,11 +139,27 @@ export default function EditorScreen(): React.ReactElement {
   );
 
   const handleBack = useCallback((): void => {
+    const current = useProjectStore.getState().project;
+    const isDirty = useProjectStore.getState().dirty;
+    if (current && isDirty) {
+      saveProjectFile(current).catch(() => {
+        // silent: best-effort save on exit
+      });
+    }
     navigation.goBack();
   }, [navigation]);
 
   const handleOpenProjectSettings = useCallback((): void => {
     navigation.navigate('ProjectSettings', { projectId });
+  }, [navigation, projectId]);
+
+  const handlePreview = useCallback((): void => {
+    const current = useProjectStore.getState().project;
+    const isDirty = useProjectStore.getState().dirty;
+    if (current && isDirty) {
+      saveProjectFile(current).catch(() => undefined);
+    }
+    navigation.navigate('Preview', { projectId });
   }, [navigation, projectId]);
 
   const handleAddComponent = useCallback(
@@ -140,21 +212,6 @@ export default function EditorScreen(): React.ReactElement {
     [activePage, removeComponent],
   );
 
-  const handleRenamePage = useCallback((): void => {
-    if (!activePage) return;
-    Alert.prompt?.(
-      'Rename page',
-      'Enter a new title for this page.',
-      (text: string) => {
-        if (text.trim()) {
-          useProjectStore.getState().renamePage(activePage.id, text.trim());
-        }
-      },
-      'plain-text',
-      activePage.title,
-    );
-  }, [activePage]);
-
   const handleAddPage = useCallback((): void => {
     addPage();
     Toast.show({ type: 'success', text1: 'Page added' });
@@ -184,7 +241,12 @@ export default function EditorScreen(): React.ReactElement {
         />
       </ScaleDecorator>
     ),
-    [activePage, handleComponentPress, handleRemoveComponent, toggleComponentVisibility],
+    [
+      activePage,
+      handleComponentPress,
+      handleRemoveComponent,
+      toggleComponentVisibility,
+    ],
   );
 
   const handleDragEnd = useCallback(
@@ -243,13 +305,12 @@ export default function EditorScreen(): React.ReactElement {
     >
       <ScreenHeader
         title={storeProject.name}
-        subtitle={activePage.title}
+        subtitle={saving ? 'Saving…' : activePage.title}
         onBack={handleBack}
         rightActions={[
           {
             icon: 'play-circle-outline',
-            onPress: () =>
-              navigation.navigate('Preview', { projectId }),
+            onPress: handlePreview,
             accessibilityLabel: 'Preview',
           },
           {

@@ -59,15 +59,38 @@ export default function PreviewScreen(): React.ReactElement {
   const reset = usePreviewStore(s => s.reset);
 
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [debug, setDebug] = useState<string>('booting');
 
   useEffect(() => {
-    if (!project) return;
+    if (!project) {
+      setDebug(
+        `no project | paramId=${String(paramProjectId)} | storeId=${String(
+          storeProject?.id,
+        )} | loading=${String(loading)} | error=${String(error)}`,
+      );
+      return;
+    }
     const startId =
       project.pages.find(p => p.id === project.startPageId)?.id ??
       project.pages[0]?.id ??
       null;
-    init(startId);
-  }, [project, init]);
+    if (activePageId !== startId) {
+      init(startId);
+    }
+    setDebug(
+      `project="${project.name}" pages=${project.pages.length} startId=${String(
+        startId,
+      )} activePageId=${String(activePageId)}`,
+    );
+  }, [
+    project,
+    init,
+    paramProjectId,
+    storeProject?.id,
+    loading,
+    error,
+    activePageId,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -155,20 +178,20 @@ export default function PreviewScreen(): React.ReactElement {
   if (!projectId) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <ScreenHeader title="Preview" />
+        <ScreenHeader title="Preview" subtitle={debug} />
         <EmptyState
           icon="play-circle-outline"
           title="Nothing to preview"
-          description="Open a project from the Projects tab, then come back here or tap Preview in the editor."
+          description="Open a project from the Projects tab first."
         />
       </SafeAreaView>
     );
   }
 
-  if (loading && !project) {
+  if (loading && !project && !storeProject) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <ScreenHeader title="Preview" />
+        <ScreenHeader title="Preview" subtitle={debug} />
         <LoadingState message="Preparing preview…" />
       </SafeAreaView>
     );
@@ -177,7 +200,7 @@ export default function PreviewScreen(): React.ReactElement {
   if (error && !project) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <ScreenHeader title="Preview" />
+        <ScreenHeader title="Preview" subtitle={debug} />
         <ErrorState
           message={error}
           onRetry={() => {
@@ -191,7 +214,7 @@ export default function PreviewScreen(): React.ReactElement {
   if (!project) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <ScreenHeader title="Preview" />
+        <ScreenHeader title="Preview" subtitle={debug} />
         <EmptyState
           icon="play-circle-outline"
           title="Nothing to preview"
@@ -204,7 +227,7 @@ export default function PreviewScreen(): React.ReactElement {
   if (!activePage) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <ScreenHeader title={project.name} />
+        <ScreenHeader title={project.name} subtitle={debug} />
         <EmptyState
           icon="document-outline"
           title="No pages to preview"
@@ -220,8 +243,8 @@ export default function PreviewScreen(): React.ReactElement {
       edges={['top', 'left', 'right']}
     >
       <ScreenHeader
-        title="Preview"
-        subtitle={activePage.title}
+        title={`Preview · ${activePage.title}`}
+        subtitle={debug}
         rightActions={[
           {
             icon: 'refresh-outline',
@@ -242,6 +265,18 @@ export default function PreviewScreen(): React.ReactElement {
         data={[activePage]}
         keyExtractor={p => p.id}
         contentContainerStyle={{ paddingVertical: 20 }}
+        ListHeaderComponent={
+          <View className="mx-4 mb-3 px-3 py-2 rounded-lg bg-primary/10 dark:bg-primary/20">
+            <Text className="text-[10px] text-primary dark:text-primary">
+              components on page: {activePage.components.length}
+            </Text>
+            <Text className="text-[10px] text-primary dark:text-primary mt-0.5">
+              {activePage.components
+                .map(c => c.type)
+                .join(', ') || '(none)'}
+            </Text>
+          </View>
+        }
         renderItem={() => (
           <PageViewRenderer
             page={activePage}

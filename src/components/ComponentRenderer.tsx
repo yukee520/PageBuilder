@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import {
   Image,
   Pressable,
@@ -24,46 +24,17 @@ import { useTheme } from '@/hooks/useTheme';
 
 export interface ComponentRendererProps {
   component: PageComponent;
+  scale: number;
   onPress?: (event: GestureResponderEvent) => void;
   onInputChange?: (value: string) => void;
   inputValue?: string;
   editable?: boolean;
 }
 
-function sizeToPadding(size: SizePreset): number {
-  switch (size) {
-    case 'small':
-      return 6;
-    case 'medium':
-      return 12;
-    case 'large':
-      return 20;
-    case 'full':
-      return 0;
-    default:
-      return 12;
-  }
-}
-
-function spacerHeight(size: SizePreset): number {
-  switch (size) {
-    case 'small':
-      return 8;
-    case 'medium':
-      return 16;
-    case 'large':
-      return 32;
-    case 'full':
-      return 48;
-    default:
-      return 16;
-  }
-}
-
 function fontSizeFor(size: SizePreset): number {
   switch (size) {
     case 'small':
-      return 12;
+      return 13;
     case 'medium':
       return 16;
     case 'large':
@@ -75,53 +46,70 @@ function fontSizeFor(size: SizePreset): number {
   }
 }
 
-function widthFor(size: SizePreset, parentWidth: number | null): number | undefined {
-  if (size === 'small') return 120;
-  if (size === 'medium') return 200;
-  if (size === 'large') return 300;
-  if (size === 'full' && parentWidth) return parentWidth;
-  return undefined;
-}
-
-function alignSelf(align: 'left' | 'center' | 'right'): 'flex-start' | 'center' | 'flex-end' {
-  if (align === 'left') return 'flex-start';
-  if (align === 'right') return 'flex-end';
-  return 'center';
+function alignToTextAlign(
+  align: 'left' | 'center' | 'right',
+): 'left' | 'center' | 'right' {
+  return align;
 }
 
 function renderText(
   c: TextComponent,
   colors: ReturnType<typeof useTheme>['colors'],
+  scale: number,
 ): React.ReactElement {
   return (
-    <Text
+    <View
       style={{
-        fontSize: fontSizeFor(c.fontSize),
-        textAlign: c.align,
-        fontWeight: c.bold ? '700' : '400',
-        color: c.color ?? colors.text,
+        flex: 1,
+        justifyContent: 'center',
+        paddingHorizontal: 4 * scale,
       }}
     >
-      {c.content || ' '}
-    </Text>
+      <Text
+        style={{
+          fontSize: fontSizeFor(c.fontSize) * scale,
+          lineHeight: fontSizeFor(c.fontSize) * scale * 1.35,
+          textAlign: alignToTextAlign(c.align),
+          fontWeight: c.bold ? '700' : '400',
+          color: c.color ?? colors.text,
+        }}
+      >
+        {c.content || ' '}
+      </Text>
+    </View>
   );
 }
 
-function renderImage(c: ImageComponent): React.ReactElement {
-  const aspect = 16 / 9;
-  const style =
-    c.size === 'full'
-      ? { width: '100%' as const, aspectRatio: aspect }
-      : { width: c.size === 'small' ? 120 : c.size === 'medium' ? 200 : 300, aspectRatio: aspect };
+function renderImage(
+  c: ImageComponent,
+  colors: ReturnType<typeof useTheme>['colors'],
+  scale: number,
+): React.ReactElement {
+  const radius = c.rounded ? 12 * scale : 0;
 
   if (!c.uri) {
     return (
       <View
-        className="bg-border dark:bg-dark-border items-center justify-center rounded-xl"
-        style={style}
+        style={{
+          flex: 1,
+          backgroundColor: colors.border,
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: radius,
+        }}
       >
-        <Ionicons name="image-outline" size={32} color="#94A3B8" />
-        <Text className="text-xs text-muted dark:text-dark-muted mt-1">
+        <Ionicons
+          name="image-outline"
+          size={28 * scale}
+          color={colors.muted}
+        />
+        <Text
+          style={{
+            color: colors.muted,
+            fontSize: 11 * scale,
+            marginTop: 4 * scale,
+          }}
+        >
           No image
         </Text>
       </View>
@@ -131,7 +119,12 @@ function renderImage(c: ImageComponent): React.ReactElement {
   return (
     <Image
       source={{ uri: c.uri }}
-      style={[style, { borderRadius: c.rounded ? 12 : 0 }]}
+      style={{
+        flex: 1,
+        width: '100%',
+        height: '100%',
+        borderRadius: radius,
+      }}
       resizeMode="cover"
     />
   );
@@ -140,28 +133,35 @@ function renderImage(c: ImageComponent): React.ReactElement {
 function renderVideo(
   c: VideoComponent,
   colors: ReturnType<typeof useTheme>['colors'],
+  scale: number,
 ): React.ReactElement {
   return (
     <View
-      className="bg-black items-center justify-center rounded-xl"
-      style={{ width: '100%', aspectRatio: 16 / 9 }}
+      style={{
+        flex: 1,
+        backgroundColor: '#000000',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 12 * scale,
+      }}
     >
-      <Ionicons name="play-circle" size={48} color="#FFFFFF" />
+      <Ionicons
+        name="play-circle"
+        size={48 * scale}
+        color="#FFFFFF"
+      />
       <Text
-        className="text-xs mt-2 px-3 text-center"
-        style={{ color: '#E2E8F0' }}
+        style={{
+          color: '#E2E8F0',
+          fontSize: 11 * scale,
+          marginTop: 4 * scale,
+          paddingHorizontal: 8 * scale,
+          textAlign: 'center',
+        }}
         numberOfLines={2}
       >
         {c.url ? c.url : 'No video URL set'}
       </Text>
-      {c.autoPlay ? (
-        <Text
-          className="text-[10px] mt-1"
-          style={{ color: colors.muted }}
-        >
-          Autoplay enabled
-        </Text>
-      ) : null}
     </View>
   );
 }
@@ -169,6 +169,7 @@ function renderVideo(
 function renderButton(
   c: ButtonComponent,
   colors: ReturnType<typeof useTheme>['colors'],
+  scale: number,
   onPress?: (event: GestureResponderEvent) => void,
 ): React.ReactElement {
   const bg =
@@ -183,22 +184,23 @@ function renderButton(
       onPress={onPress}
       disabled={!onPress}
       style={{
+        flex: 1,
         backgroundColor: bg,
-        paddingVertical: sizeToPadding(c.size),
-        paddingHorizontal: sizeToPadding(c.size) * 2,
-        borderRadius: 12,
-        alignSelf: alignSelf(c.align),
-        minWidth: c.size === 'full' ? '100%' : undefined,
+        borderRadius: 10 * scale,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 12 * scale,
       }}
       accessibilityRole="button"
     >
       <Text
         style={{
           color: '#FFFFFF',
-          fontSize: fontSizeFor(c.size),
+          fontSize: 15 * scale,
           fontWeight: '600',
           textAlign: 'center',
         }}
+        numberOfLines={1}
       >
         {c.label || 'Button'}
       </Text>
@@ -206,30 +208,61 @@ function renderButton(
   );
 }
 
-function renderSpacer(c: SpacerComponent): React.ReactElement {
-  return <View style={{ height: spacerHeight(c.size) }} />;
+function renderSpacer(
+  colors: ReturnType<typeof useTheme>['colors'],
+  scale: number,
+): React.ReactElement {
+  return (
+    <View
+      style={{
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderStyle: 'dashed',
+        borderRadius: 6 * scale,
+      }}
+    >
+      <Text
+        style={{
+          color: colors.muted,
+          fontSize: 10 * scale,
+          fontStyle: 'italic',
+        }}
+      >
+        spacer
+      </Text>
+    </View>
+  );
 }
 
 function renderDivider(
   c: DividerComponent,
   colors: ReturnType<typeof useTheme>['colors'],
+  scale: number,
 ): React.ReactElement {
-  const height = c.thickness === 'thin' ? 1 : c.thickness === 'medium' ? 2 : 4;
+  const thickness =
+    c.thickness === 'thin' ? 1 : c.thickness === 'medium' ? 2 : 4;
+  const h = Math.max(thickness * scale, thickness);
   return (
-    <View
-      style={{
-        height,
-        backgroundColor: colors.border,
-        width: '100%',
-        borderRadius: height / 2,
-      }}
-    />
+    <View style={{ flex: 1, justifyContent: 'center' }}>
+      <View
+        style={{
+          height: h,
+          backgroundColor: colors.border,
+          width: '100%',
+          borderRadius: h / 2,
+        }}
+      />
+    </View>
   );
 }
 
 function renderInput(
   c: InputComponent,
   colors: ReturnType<typeof useTheme>['colors'],
+  scale: number,
   value: string | undefined,
   onChange: ((value: string) => void) | undefined,
   editable: boolean,
@@ -242,21 +275,102 @@ function renderInput(
       placeholder={c.placeholder || 'Enter text'}
       placeholderTextColor={colors.muted}
       style={{
+        flex: 1,
         backgroundColor: colors.card,
         borderColor: colors.border,
         borderWidth: 1,
-        borderRadius: 12,
-        paddingHorizontal: 12,
-        paddingVertical: 10,
+        borderRadius: 10 * scale,
+        paddingHorizontal: 10 * scale,
         color: colors.text,
-        fontSize: 16,
+        fontSize: 15 * scale,
       }}
     />
   );
 }
 
+function renderRow(
+  c: RowComponent,
+  colors: ReturnType<typeof useTheme>['colors'],
+  scale: number,
+): React.ReactElement {
+  const gap = c.gap === 'small' ? 6 : c.gap === 'large' ? 20 : 12;
+  if (c.children.length === 0) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderWidth: 1,
+          borderStyle: 'dashed',
+          borderColor: colors.border,
+          borderRadius: 10 * scale,
+        }}
+      >
+        <Text style={{ color: colors.muted, fontSize: 11 * scale }}>
+          Empty row
+        </Text>
+      </View>
+    );
+  }
+  return (
+    <View
+      style={{
+        flex: 1,
+        flexDirection: 'row',
+        gap: gap * scale,
+        alignItems: 'stretch',
+      }}
+    >
+      {c.children.map(child => (
+        <View
+          key={child.id}
+          style={{
+            flex: Math.max(child.width, 1),
+            opacity: child.visible ? 1 : 0.3,
+          }}
+        >
+          <View style={{ flex: 1, position: 'relative' }}>
+            <ChildRenderer
+              component={child}
+              scale={scale}
+              colors={colors}
+            />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function ChildRenderer({
+  component,
+  scale,
+  colors,
+}: {
+  component: PageComponent;
+  scale: number;
+  colors: ReturnType<typeof useTheme>['colors'];
+}): React.ReactElement | null {
+  switch (component.type) {
+    case 'text':
+      return renderText(component, colors, scale);
+    case 'image':
+      return renderImage(component, colors, scale);
+    case 'button':
+      return renderButton(component, colors, scale);
+    case 'divider':
+      return renderDivider(component, colors, scale);
+    case 'spacer':
+      return renderSpacer(colors, scale);
+    default:
+      return null;
+  }
+}
+
 export default function ComponentRenderer({
   component,
+  scale,
   onPress,
   onInputChange,
   inputValue,
@@ -264,37 +378,42 @@ export default function ComponentRenderer({
 }: ComponentRendererProps): React.ReactElement | null {
   const { colors } = useTheme();
 
-  const inner = useMemo((): React.ReactElement | null => {
+  if (!component.visible) {
+    if (!editable) return null;
+  }
+
+  const opacity = component.visible ? 1 : 0.35;
+
+  const inner = (() => {
     switch (component.type) {
       case 'text':
-        return renderText(component, colors);
+        return renderText(component, colors, scale);
       case 'image':
-        return renderImage(component);
+        return renderImage(component, colors, scale);
       case 'video':
-        return renderVideo(component, colors);
+        return renderVideo(component, colors, scale);
       case 'button':
-        return renderButton(component, colors, onPress);
+        return renderButton(component, colors, scale, onPress);
       case 'spacer':
-        return renderSpacer(component);
+        return renderSpacer(colors, scale);
       case 'divider':
-        return renderDivider(component, colors);
+        return renderDivider(component, colors, scale);
       case 'input':
-        return renderInput(component, colors, inputValue, onInputChange, editable);
+        return renderInput(
+          component,
+          colors,
+          scale,
+          inputValue,
+          onInputChange,
+          editable,
+        );
       case 'row':
-        return renderRow(component, colors, onPress, onInputChange, inputValue, editable);
+        return renderRow(component, colors, scale);
       default:
         return null;
     }
-  }, [
-    component,
-    colors,
-    onPress,
-    onInputChange,
-    inputValue,
-    editable,
-  ]);
+  })();
 
-  if (!component.visible) return null;
   if (!inner) return null;
 
   const isButton = component.type === 'button';
@@ -303,58 +422,17 @@ export default function ComponentRenderer({
 
   if (interactive) {
     return (
-      <Pressable
-        onPress={onPress}
-        style={{ width: '100%' }}
-        accessibilityRole="button"
-      >
-        {inner}
-      </Pressable>
+      <View style={{ flex: 1, opacity }}>
+        <Pressable
+          onPress={onPress}
+          style={{ flex: 1 }}
+          accessibilityRole="button"
+        >
+          {inner}
+        </Pressable>
+      </View>
     );
   }
 
-  return inner;
-}
-
-function renderRow(
-  c: RowComponent,
-  colors: ReturnType<typeof useTheme>['colors'],
-  onPress: ((event: GestureResponderEvent) => void) | undefined,
-  onInputChange: ((value: string) => void) | undefined,
-  inputValue: string | undefined,
-  editable: boolean,
-): React.ReactElement {
-  const gap = c.gap === 'small' ? 6 : c.gap === 'large' ? 20 : 12;
-  return (
-    <View style={{ flexDirection: 'row', gap, alignItems: 'center' }}>
-      {c.children.map(child => (
-        <View key={child.id} style={{ flex: 1 }}>
-          <ComponentRenderer
-            component={child}
-            onPress={onPress}
-            onInputChange={onInputChange}
-            inputValue={inputValue}
-            editable={editable}
-          />
-        </View>
-      ))}
-      {c.children.length === 0 ? (
-        <View
-          style={{
-            flex: 1,
-            borderStyle: 'dashed',
-            borderWidth: 1,
-            borderColor: colors.border,
-            borderRadius: 12,
-            paddingVertical: 16,
-            alignItems: 'center',
-          }}
-        >
-          <Text style={{ color: colors.muted, fontSize: 12 }}>
-            Empty row
-          </Text>
-        </View>
-      ) : null}
-    </View>
-  );
+  return <View style={{ flex: 1, opacity }}>{inner}</View>;
 }

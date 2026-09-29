@@ -14,7 +14,22 @@ export type SizePreset = 'small' | 'medium' | 'large' | 'full';
 
 export type HorizontalAlign = 'left' | 'center' | 'right';
 
-export interface ComponentBase {
+/**
+ * Virtual canvas coordinate system.
+ * All x, y, width, height values are in VIRTUAL units.
+ * Virtual canvas is 360 × 780 (see src/utils/canvas.ts).
+ * At render time, virtual units are multiplied by a scale factor
+ * derived from the real screen size.
+ */
+export interface PositionedBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  zIndex: number;
+}
+
+export interface ComponentBase extends PositionedBox {
   id: string;
   type: ComponentType;
   actions: InteractionAction[];
@@ -33,7 +48,6 @@ export interface TextComponent extends ComponentBase {
 export interface ImageComponent extends ComponentBase {
   type: 'image';
   uri: string;
-  size: SizePreset;
   rounded: boolean;
 }
 
@@ -46,14 +60,11 @@ export interface VideoComponent extends ComponentBase {
 export interface ButtonComponent extends ComponentBase {
   type: 'button';
   label: string;
-  size: SizePreset;
-  align: HorizontalAlign;
   variant: 'primary' | 'secondary' | 'danger';
 }
 
 export interface SpacerComponent extends ComponentBase {
   type: 'spacer';
-  size: SizePreset;
 }
 
 export interface DividerComponent extends ComponentBase {

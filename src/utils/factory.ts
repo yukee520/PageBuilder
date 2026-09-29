@@ -10,6 +10,15 @@ import {
   generateVariableKey,
 } from '@/utils/id';
 import { sanitizePackageName, sanitizeRepoName } from '@/utils/format';
+import {
+  CANVAS_HEIGHT,
+  CANVAS_WIDTH,
+  DEFAULT_COMPONENT_SIZE,
+} from '@/utils/canvas';
+
+const DROP_X = 40;
+const DROP_Y_START = 40;
+const DROP_Y_STEP = 20;
 
 export function createEmptyPage(title: string): Page {
   return {
@@ -35,12 +44,60 @@ export function createProject(name: string): Project {
   };
 }
 
+function nextZIndex(components: PageComponent[]): number {
+  if (components.length === 0) return 1;
+  return Math.max(...components.map(c => c.zIndex ?? 0)) + 1;
+}
+
+function findDropPosition(
+  components: PageComponent[],
+  width: number,
+  height: number,
+): { x: number; y: number } {
+  let y = DROP_Y_START;
+  let attempts = 0;
+  while (attempts < 30) {
+    const overlapping = components.some(
+      c =>
+        Math.abs(c.x - DROP_X) < 8 &&
+        Math.abs(c.y - y) < 8,
+    );
+    if (!overlapping) break;
+    y += DROP_Y_STEP;
+    if (y + height > CANVAS_HEIGHT - 20) {
+      y = DROP_Y_START;
+      break;
+    }
+    attempts += 1;
+  }
+
+  const maxX = CANVAS_WIDTH - width;
+  const maxY = CANVAS_HEIGHT - height;
+  return {
+    x: Math.max(0, Math.min(DROP_X, maxX)),
+    y: Math.max(0, Math.min(y, maxY)),
+  };
+}
+
 export function createComponent(
   type: ComponentType,
-  overrideId?: string,
+  existingSiblings: PageComponent[] = [],
 ): PageComponent {
-  const id = overrideId ?? generateComponentId();
-  const base = { id, actions: [] as InteractionAction[], visible: true };
+  const id = generateComponentId();
+  const size = DEFAULT_COMPONENT_SIZE[type] ?? { width: 200, height: 40 };
+  const { x, y } = findDropPosition(existingSiblings, size.width, size.height);
+  const zIndex = nextZIndex(existingSiblings);
+
+  const base = {
+    id,
+    actions: [] as InteractionAction[],
+    visible: true,
+    x,
+    y,
+    width: size.width,
+    height: size.height,
+    zIndex,
+  };
 
   switch (type) {
     case 'text':
@@ -58,7 +115,6 @@ export function createComponent(
         ...base,
         type: 'image',
         uri: '',
-        size: 'full',
         rounded: true,
       };
     case 'video':
@@ -73,15 +129,12 @@ export function createComponent(
         ...base,
         type: 'button',
         label: 'Tap me',
-        size: 'medium',
-        align: 'center',
         variant: 'primary',
       };
     case 'spacer':
       return {
         ...base,
         type: 'spacer',
-        size: 'medium',
       };
     case 'divider':
       return {

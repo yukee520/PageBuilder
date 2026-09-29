@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
+  Image,
   Pressable,
   Switch,
   Text,
@@ -16,14 +17,11 @@ import ScreenHeader from '@/components/ScreenHeader';
 import Button from '@/components/Button';
 import Card from '@/components/Card';
 import Input from '@/components/Input';
-import EmptyState from '@/components/EmptyState';
 import ErrorState from '@/components/ErrorState';
 import { useProjectStore } from '@/store/useProjectStore';
 import { useTheme } from '@/hooks/useTheme';
-import type {
-  ActionType,
-  InteractionAction,
-} from '@/types/action';
+import { useImagePicker } from '@/hooks/useImagePicker';
+import type { ActionType, InteractionAction } from '@/types/action';
 import { ACTION_TYPE_ICONS, ACTION_TYPE_LABELS } from '@/types/action';
 import type {
   ButtonComponent,
@@ -59,6 +57,7 @@ export default function ComponentEditScreen(): React.ReactElement {
   const route = useRoute<Rt>();
   const { projectId, pageId, componentId } = route.params;
   const { colors } = useTheme();
+  const { picking, pick } = useImagePicker();
 
   const project = useProjectStore(s => s.project);
   const updateComponent = useProjectStore(s => s.updateComponent);
@@ -85,6 +84,13 @@ export default function ComponentEditScreen(): React.ReactElement {
     },
     [componentId, pageId, updateComponent],
   );
+
+  const handlePickImage = useCallback(async (): Promise<void> => {
+    const result = await pick();
+    if (!result) return;
+    patch({ uri: result.uri } as Partial<ImageComponent>);
+    Toast.show({ type: 'success', text1: 'Image added' });
+  }, [patch, pick]);
 
   const handleDelete = useCallback((): void => {
     Alert.alert('Delete component?', 'This cannot be undone.', [
@@ -195,7 +201,7 @@ export default function ComponentEditScreen(): React.ReactElement {
               <Text className="text-base font-semibold text-text dark:text-dark-text mb-3">
                 Content
               </Text>
-              {renderContentEditor(component, patch, colors)}
+              {renderContentEditor(component, patch, colors, picking, handlePickImage)}
             </Card>
 
             <Card className="mb-4">
@@ -363,6 +369,8 @@ function renderContentEditor(
   c: PageComponent,
   patch: (update: Partial<PageComponent>) => void,
   colors: ReturnType<typeof useTheme>['colors'],
+  picking: boolean,
+  onPickImage: () => void,
 ): React.ReactElement {
   switch (c.type) {
     case 'text':
@@ -370,29 +378,82 @@ function renderContentEditor(
         <Input
           label="Text content"
           value={c.content}
-          onChangeText={value => patch({ content: value } as Partial<TextComponent>)}
+          onChangeText={value =>
+            patch({ content: value } as Partial<TextComponent>)
+          }
           placeholder="Enter your text"
           multiline
         />
       );
+
     case 'image':
       return (
-        <Input
-          label="Image URL"
-          value={c.uri}
-          onChangeText={value => patch({ uri: value } as Partial<ImageComponent>)}
-          placeholder="https://example.com/image.jpg"
-          autoCapitalize="none"
-          hint="You can also pick a local image from the gallery in a future update."
-        />
+        <View>
+          <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
+            Image source
+          </Text>
+
+          {c.uri ? (
+            <View className="mb-3 rounded-xl overflow-hidden border border-border dark:border-dark-border bg-background dark:bg-dark-background">
+              <Image
+                source={{ uri: c.uri }}
+                style={{ width: '100%', height: 180 }}
+                resizeMode="cover"
+              />
+            </View>
+          ) : (
+            <View className="mb-3 rounded-xl border border-dashed border-border dark:border-dark-border items-center justify-center bg-background dark:bg-dark-background" style={{ height: 140 }}>
+              <Ionicons name="image-outline" size={32} color={colors.muted} />
+              <Text className="text-xs text-muted dark:text-dark-muted mt-2">
+                No image selected
+              </Text>
+            </View>
+          )}
+
+          <Button
+            label={picking ? 'Opening gallery…' : c.uri ? 'Replace image' : 'Pick from gallery'}
+            icon="images-outline"
+            onPress={onPickImage}
+            loading={picking}
+            fullWidth
+          />
+
+          {c.uri ? (
+            <View className="mt-2">
+              <Button
+                label="Remove image"
+                icon="close-circle-outline"
+                variant="ghost"
+                size="small"
+                onPress={() => patch({ uri: '' } as Partial<ImageComponent>)}
+              />
+            </View>
+          ) : null}
+
+          <View className="mt-4">
+            <Input
+              label="Or paste an image URL"
+              value={c.uri.startsWith('http') ? c.uri : ''}
+              onChangeText={value =>
+                patch({ uri: value } as Partial<ImageComponent>)
+              }
+              placeholder="https://example.com/image.jpg"
+              autoCapitalize="none"
+              hint="Useful for images hosted online."
+            />
+          </View>
+        </View>
       );
+
     case 'video':
       return (
         <>
           <Input
             label="Video URL"
             value={c.url}
-            onChangeText={value => patch({ url: value } as Partial<VideoComponent>)}
+            onChangeText={value =>
+              patch({ url: value } as Partial<VideoComponent>)
+            }
             placeholder="https://www.youtube.com/watch?v=..."
             autoCapitalize="none"
             containerClassName="mb-3"
@@ -411,27 +472,33 @@ function renderContentEditor(
           </View>
         </>
       );
+
     case 'button':
       return (
         <Input
           label="Button label"
           value={c.label}
-          onChangeText={value => patch({ label: value } as Partial<ButtonComponent>)}
+          onChangeText={value =>
+            patch({ label: value } as Partial<ButtonComponent>)
+          }
           placeholder="Tap me"
         />
       );
+
     case 'spacer':
       return (
         <Text className="text-xs text-muted dark:text-dark-muted">
           Adjust the size in the Appearance section.
         </Text>
       );
+
     case 'divider':
       return (
         <Text className="text-xs text-muted dark:text-dark-muted">
           Adjust thickness in the Appearance section.
         </Text>
       );
+
     case 'row':
       return (
         <Text className="text-xs text-muted dark:text-dark-muted">
@@ -439,6 +506,7 @@ function renderContentEditor(
           canvas.
         </Text>
       );
+
     case 'input':
       return (
         <>
@@ -495,12 +563,15 @@ function renderAppearanceEditor(
             <Text className="text-sm text-text dark:text-dark-text">Bold</Text>
             <Switch
               value={c.bold}
-              onValueChange={value => patch({ bold: value } as Partial<TextComponent>)}
+              onValueChange={value =>
+                patch({ bold: value } as Partial<TextComponent>)
+              }
               trackColor={{ false: colors.border, true: colors.primary }}
             />
           </View>
         </>
       );
+
     case 'image':
       return (
         <>
@@ -526,155 +597,4 @@ function renderAppearanceEditor(
           </View>
         </>
       );
-    case 'button':
-      return (
-        <>
-          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
-            Size
-          </Text>
-          <SizeRow
-            value={c.size}
-            onChange={value => patch({ size: value } as Partial<ButtonComponent>)}
-          />
-          <View className="h-3" />
-          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
-            Align
-          </Text>
-          <AlignRow
-            value={c.align}
-            onChange={value => patch({ align: value } as Partial<ButtonComponent>)}
-          />
-        </>
-      );
-    case 'spacer':
-      return (
-        <>
-          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
-            Size
-          </Text>
-          <SizeRow
-            value={c.size}
-            onChange={value => patch({ size: value } as Partial<SpacerComponent>)}
-          />
-        </>
-      );
-    case 'divider':
-      return (
-        <>
-          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
-            Thickness
-          </Text>
-          <View className="flex-row">
-            {(['thin', 'medium', 'thick'] as const).map(t => {
-              const active = c.thickness === t;
-              return (
-                <Pressable
-                  key={t}
-                  onPress={() =>
-                    patch({ thickness: t } as Partial<DividerComponent>)
-                  }
-                  className={[
-                    'px-3 py-2 rounded-lg mr-2 border',
-                    active
-                      ? 'bg-primary border-primary'
-                      : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
-                  ].join(' ')}
-                >
-                  <Text
-                    className={[
-                      'text-xs font-semibold capitalize',
-                      active ? 'text-white' : 'text-text dark:text-dark-text',
-                    ].join(' ')}
-                  >
-                    {t}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </>
-      );
-    case 'video':
-    case 'row':
-    case 'input':
-      return (
-        <Text className="text-xs text-muted dark:text-dark-muted">
-          No appearance options for this component yet.
-        </Text>
-      );
-  }
-}
 
-function SizeRow({
-  value,
-  onChange,
-}: {
-  value: SizePreset;
-  onChange: (v: SizePreset) => void;
-}): React.ReactElement {
-  return (
-    <View className="flex-row flex-wrap">
-      {SIZE_PRESETS.map(s => {
-        const active = value === s;
-        return (
-          <Pressable
-            key={s}
-            onPress={() => onChange(s)}
-            className={[
-              'px-3 py-2 rounded-lg mr-2 mb-2 border',
-              active
-                ? 'bg-primary border-primary'
-                : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
-            ].join(' ')}
-          >
-            <Text
-              className={[
-                'text-xs font-semibold capitalize',
-                active ? 'text-white' : 'text-text dark:text-dark-text',
-              ].join(' ')}
-            >
-              {s}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
-function AlignRow({
-  value,
-  onChange,
-}: {
-  value: HorizontalAlign;
-  onChange: (v: HorizontalAlign) => void;
-}): React.ReactElement {
-  return (
-    <View className="flex-row">
-      {ALIGN_OPTIONS.map(a => {
-        const active = value === a;
-        return (
-          <Pressable
-            key={a}
-            onPress={() => onChange(a)}
-            className={[
-              'px-3 py-2 rounded-lg mr-2 border',
-              active
-                ? 'bg-primary border-primary'
-                : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
-            ].join(' ')}
-          >
-            <Text
-              className={[
-                'text-xs font-semibold capitalize',
-                active ? 'text-white' : 'text-text dark:text-dark-text',
-              ].join(' ')}
-            >
-              {a}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}

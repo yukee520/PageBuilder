@@ -9,10 +9,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import DraggableFlatList, {
-  ScaleDecorator,
-  type RenderItemParams,
-} from 'react-native-draggable-flatlist';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Toast from 'react-native-toast-message';
 import ScreenHeader from '@/components/ScreenHeader';
@@ -20,7 +16,8 @@ import LoadingState from '@/components/LoadingState';
 import ErrorState from '@/components/ErrorState';
 import EmptyState from '@/components/EmptyState';
 import PageTabBar from '@/components/PageTabBar';
-import ComponentListItem from '@/components/ComponentListItem';
+import PageViewRenderer from '@/components/PageViewRenderer';
+import Button from '@/components/Button';
 import { useProject } from '@/hooks/useProject';
 import { saveProjectFile } from '@/hooks/useProjects';
 import { useProjectStore } from '@/store/useProjectStore';
@@ -59,13 +56,17 @@ export default function EditorScreen(): React.ReactElement {
   const addPage = useProjectStore(s => s.addPage);
   const addComponent = useProjectStore(s => s.addComponent);
   const removeComponent = useProjectStore(s => s.removeComponent);
-  const reorderComponents = useProjectStore(s => s.reorderComponents);
+  const updateComponent = useProjectStore(s => s.updateComponent);
   const toggleComponentVisibility = useProjectStore(
     s => s.toggleComponentVisibility,
   );
+  const moveComponent = useProjectStore(s => s.moveComponent);
 
   const [showPicker, setShowPicker] = useState<boolean>(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
+
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasHydratedRef = useRef<boolean>(false);
 
@@ -84,13 +85,10 @@ export default function EditorScreen(): React.ReactElement {
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
     }
-
     saveTimerRef.current = setTimeout(() => {
       setSaving(true);
       saveProjectFile(storeProject)
-        .then(() => {
-          markClean();
-        })
+        .then(() => markClean())
         .catch((err: unknown) => {
           const msg =
             err instanceof Error ? err.message : 'Autosave failed.';
@@ -133,34 +131,33 @@ export default function EditorScreen(): React.ReactElement {
     );
   }, [storeProject, activePageId]);
 
-  const components = useMemo<PageComponent[]>(
-    () => activePage?.components ?? [],
-    [activePage],
-  );
+  const selectedComponent = useMemo<PageComponent | null>(() => {
+    if (!activePage || !selectedId) return null;
+    return activePage.components.find(c => c.id === selectedId) ?? null;
+  }, [activePage, selectedId]);
+
+  const saveNow = useCallback((): void => {
+    const current = useProjectStore.getState().project;
+    const isDirty = useProjectStore.getState().dirty;
+    if (current && isDirty) {
+      void saveProjectFile(current);
+    }
+  }, []);
 
   const handleBack = useCallback((): void => {
-    const current = useProjectStore.getState().project;
-    const isDirty = useProjectStore.getState().dirty;
-    if (current && isDirty) {
-      saveProjectFile(current).catch(() => {
-        // silent: best-effort save on exit
-      });
-    }
+    saveNow();
     navigation.goBack();
-  }, [navigation]);
+  }, [navigation, saveNow]);
+
+  const handlePreviewTab = useCallback((): void => {
+    saveNow();
+    navigation.navigate('Preview', { projectId });
+  }, [navigation, projectId, saveNow]);
 
   const handleOpenProjectSettings = useCallback((): void => {
+    saveNow();
     navigation.navigate('ProjectSettings', { projectId });
-  }, [navigation, projectId]);
-
-  const handlePreview = useCallback((): void => {
-    const current = useProjectStore.getState().project;
-    const isDirty = useProjectStore.getState().dirty;
-    if (current && isDirty) {
-      saveProjectFile(current).catch(() => undefined);
-    }
-    navigation.navigate('Preview', { projectId });
-  }, [navigation, projectId]);
+  }, [navigation, projectId, saveNow]);
 
   const handleAddComponent = useCallback(
     (type: ComponentType): void => {
@@ -168,6 +165,7 @@ export default function EditorScreen(): React.ReactElement {
       const newId = addComponent(activePage.id, type);
       setShowPicker(false);
       if (newId) {
+        setSelectedId(newId);
         navigation.navigate('ComponentEdit', {
           projectId,
           pageId: activePage.id,
@@ -178,39 +176,81 @@ export default function EditorScreen(): React.ReactElement {
     [activePage, addComponent, navigation, projectId],
   );
 
-  const handleComponentPress = useCallback(
-    (component: PageComponent): void => {
+  const handleComponentChange = useCallback(
+    (
+      id: string,
+      next: { x: number; y: number; width: number; height: number },
+    ): void => {
       if (!activePage) return;
+      updateComponent(activePage.id, id, next);
+    },
+    [activePage, updateComponent],
+  );
+
+  const handleRequestEdit = useCallback(
+    (id: string): void => {
+      if (!activePage) return;
+      setSelectedId(id);
       navigation.navigate('ComponentEdit', {
         projectId,
         pageId: activePage.id,
-        componentId: component.id,
+        componentId: id,
       });
     },
     [activePage, navigation, projectId],
   );
 
-  const handleRemoveComponent = useCallback(
-    (component: PageComponent): void => {
-      if (!activePage) return;
-      Alert.alert(
-        'Remove component?',
-        `This ${COMPONENT_TYPE_LABELS[component.type]} will be deleted from this page.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Remove',
-            style: 'destructive',
-            onPress: () => {
-              removeComponent(activePage.id, component.id);
-              Toast.show({ type: 'success', text1: 'Component removed' });
-            },
+  const handleDeleteSelected = useCallback((): void => {
+    if (!activePage || !selectedComponent) return;
+    Alert.alert(
+      'Remove component?',
+      `This ${COMPONENT_TYPE_LABELS[selectedComponent.type]} will be deleted.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            removeComponent(activePage.id, selectedComponent.id);
+            setSelectedId(null);
+            Toast.show({ type: 'success', text1: 'Component removed' });
           },
-        ],
-      );
-    },
-    [activePage, removeComponent],
-  );
+        },
+      ],
+    );
+  }, [activePage, removeComponent, selectedComponent]);
+
+  const handleEditSelected = useCallback((): void => {
+    if (!activePage || !selectedComponent) return;
+    navigation.navigate('ComponentEdit', {
+      projectId,
+      pageId: activePage.id,
+      componentId: selectedComponent.id,
+    });
+  }, [activePage, navigation, projectId, selectedComponent]);
+
+  const handleToggleVisibleSelected = useCallback((): void => {
+    if (!activePage || !selectedComponent) return;
+    toggleComponentVisibility(activePage.id, selectedComponent.id);
+  }, [activePage, selectedComponent, toggleComponentVisibility]);
+
+  const handleBringForward = useCallback((): void => {
+    if (!activePage || !selectedComponent) return;
+    const maxZ = Math.max(...activePage.components.map(c => c.zIndex));
+    if (selectedComponent.zIndex >= maxZ) return;
+    updateComponent(activePage.id, selectedComponent.id, {
+      zIndex: maxZ + 1,
+    });
+  }, [activePage, selectedComponent, updateComponent]);
+
+  const handleSendBackward = useCallback((): void => {
+    if (!activePage || !selectedComponent) return;
+    const minZ = Math.min(...activePage.components.map(c => c.zIndex));
+    if (selectedComponent.zIndex <= minZ) return;
+    updateComponent(activePage.id, selectedComponent.id, {
+      zIndex: Math.max(1, minZ - 1),
+    });
+  }, [activePage, selectedComponent, updateComponent]);
 
   const handleAddPage = useCallback((): void => {
     addPage();
@@ -220,45 +260,23 @@ export default function EditorScreen(): React.ReactElement {
   const handleSelectPage = useCallback(
     (pageId: string): void => {
       setActivePage(pageId);
+      setSelectedId(null);
     },
     [setActivePage],
   );
 
-  const renderComponentItem = useCallback(
-    ({ item, drag, isActive }: RenderItemParams<PageComponent>) => (
-      <ScaleDecorator>
-        <ComponentListItem
-          component={item}
-          onPress={() => handleComponentPress(item)}
-          onLongPress={() => handleRemoveComponent(item)}
-          onToggleVisibility={() => {
-            if (activePage) {
-              toggleComponentVisibility(activePage.id, item.id);
-            }
-          }}
-          drag={drag}
-          isActive={isActive}
-        />
-      </ScaleDecorator>
-    ),
-    [
-      activePage,
-      handleComponentPress,
-      handleRemoveComponent,
-      toggleComponentVisibility,
-    ],
-  );
+  const handleSelectComponent = useCallback((id: string | null): void => {
+    setSelectedId(id);
+  }, []);
 
-  const handleDragEnd = useCallback(
-    ({ data }: { data: PageComponent[] }): void => {
-      if (!activePage) return;
-      reorderComponents(
-        activePage.id,
-        data.map(c => c.id),
-      );
-    },
-    [activePage, reorderComponents],
-  );
+  const handleDeselect = useCallback((): void => {
+    setSelectedId(null);
+  }, []);
+
+  const togglePreviewMode = useCallback((): void => {
+    setPreviewMode(p => !p);
+    setSelectedId(null);
+  }, []);
 
   if (loading) {
     return (
@@ -305,13 +323,26 @@ export default function EditorScreen(): React.ReactElement {
     >
       <ScreenHeader
         title={storeProject.name}
-        subtitle={saving ? 'Saving…' : activePage.title}
+        subtitle={
+          previewMode
+            ? 'Preview mode'
+            : saving
+            ? 'Saving…'
+            : `${activePage.title} · ${activePage.components.length} item${
+                activePage.components.length === 1 ? '' : 's'
+              }`
+        }
         onBack={handleBack}
         rightActions={[
           {
+            icon: previewMode ? 'create-outline' : 'eye-outline',
+            onPress: togglePreviewMode,
+            accessibilityLabel: previewMode ? 'Edit mode' : 'Preview mode',
+          },
+          {
             icon: 'play-circle-outline',
-            onPress: handlePreview,
-            accessibilityLabel: 'Preview',
+            onPress: handlePreviewTab,
+            accessibilityLabel: 'Open Preview tab',
           },
           {
             icon: 'settings-outline',
@@ -329,34 +360,112 @@ export default function EditorScreen(): React.ReactElement {
         onManagePages={handleOpenProjectSettings}
       />
 
-      <View className="flex-1">
-        {components.length === 0 ? (
-          <EmptyState
-            icon="cube-outline"
-            title="This page is empty"
-            description="Tap the + button to add your first component."
-            actionLabel="Add component"
-            onAction={() => setShowPicker(true)}
-          />
-        ) : (
-          <DraggableFlatList
-            data={components}
-            keyExtractor={item => item.id}
-            renderItem={renderComponentItem}
-            onDragEnd={handleDragEnd}
-            contentContainerStyle={{ padding: 12, paddingBottom: 100 }}
-          />
-        )}
-
+      <View className="flex-1 bg-slate-200 dark:bg-slate-900">
         <Pressable
-          onPress={() => setShowPicker(true)}
-          className="absolute right-5 bottom-6 w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg active:opacity-80"
-          accessibilityRole="button"
-          accessibilityLabel="Add component"
+          onPress={handleDeselect}
+          style={{ flex: 1 }}
+          disabled={previewMode || !selectedId}
         >
-          <Ionicons name="add" size={28} color="#FFFFFF" />
+          <View
+            className="flex-1 bg-white dark:bg-dark-card m-2 rounded-2xl overflow-hidden"
+            style={{
+              shadowColor: '#000',
+              shadowOpacity: 0.15,
+              shadowRadius: 8,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: 4,
+            }}
+          >
+            <PageViewRenderer
+              page={activePage}
+              editable={!previewMode}
+              selectedComponentId={selectedId}
+              onSelectComponent={handleSelectComponent}
+              onComponentChange={handleComponentChange}
+              onRequestEdit={handleRequestEdit}
+              onComponentPress={component => {
+                if (component.actions.length === 0) return;
+                for (const action of component.actions) {
+                  if (action.type === 'navigate' && action.pageId) {
+                    setActivePage(action.pageId);
+                  } else if (action.type === 'showAlert') {
+                    Alert.alert(
+                      action.title || 'Notice',
+                      action.message || '',
+                    );
+                  } else if (action.type === 'openUrl' && action.url) {
+                    Alert.alert('Link', action.url);
+                  }
+                }
+              }}
+              inputValues={{}}
+            />
+          </View>
         </Pressable>
+
+        {!previewMode ? (
+          <Pressable
+            onPress={() => setShowPicker(true)}
+            className="absolute right-5 bottom-6 w-14 h-14 rounded-full bg-primary items-center justify-center active:opacity-80"
+            style={{
+              shadowColor: '#000',
+              shadowOpacity: 0.25,
+              shadowRadius: 6,
+              shadowOffset: { width: 0, height: 3 },
+              elevation: 6,
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Add component"
+          >
+            <Ionicons name="add" size={28} color="#FFFFFF" />
+          </Pressable>
+        ) : null}
       </View>
+
+      {selectedComponent && !previewMode ? (
+        <View className="bg-card dark:bg-dark-card border-t border-border dark:border-dark-border px-3 py-2">
+          <View className="flex-row items-center justify-between mb-2">
+            <Text className="text-xs text-muted dark:text-dark-muted">
+              {COMPONENT_TYPE_LABELS[selectedComponent.type]} selected
+            </Text>
+            <Pressable
+              onPress={() => setSelectedId(null)}
+              hitSlop={8}
+              className="p-1"
+            >
+              <Ionicons name="close" size={16} color="#94A3B8" />
+            </Pressable>
+          </View>
+          <View className="flex-row flex-wrap">
+            <ToolbarButton
+              icon="create-outline"
+              label="Edit"
+              onPress={handleEditSelected}
+            />
+            <ToolbarButton
+              icon="arrow-up-outline"
+              label="Up"
+              onPress={handleBringForward}
+            />
+            <ToolbarButton
+              icon="arrow-down-outline"
+              label="Down"
+              onPress={handleSendBackward}
+            />
+            <ToolbarButton
+              icon={selectedComponent.visible ? 'eye-off-outline' : 'eye-outline'}
+              label={selectedComponent.visible ? 'Hide' : 'Show'}
+              onPress={handleToggleVisibleSelected}
+            />
+            <ToolbarButton
+              icon="trash-outline"
+              label="Delete"
+              danger
+              onPress={handleDeleteSelected}
+            />
+          </View>
+        </View>
+      ) : null}
 
       {showPicker ? (
         <Pressable
@@ -396,5 +505,36 @@ export default function EditorScreen(): React.ReactElement {
         </Pressable>
       ) : null}
     </SafeAreaView>
+  );
+}
+
+interface ToolbarButtonProps {
+  icon: string;
+  label: string;
+  onPress: () => void;
+  danger?: boolean;
+}
+
+function ToolbarButton({
+  icon,
+  label,
+  onPress,
+  danger,
+}: ToolbarButtonProps): React.ReactElement {
+  const color = danger ? '#EF4444' : '#2563EB';
+  return (
+    <Pressable
+      onPress={onPress}
+      className="flex-row items-center px-3 py-2 rounded-lg bg-background dark:bg-dark-background mr-2 mb-2 active:opacity-70"
+      accessibilityRole="button"
+    >
+      <Ionicons name={icon} size={14} color={color} />
+      <Text
+        className="text-xs font-semibold ml-1"
+        style={{ color }}
+      >
+        {label}
+      </Text>
+    </Pressable>
   );
 }

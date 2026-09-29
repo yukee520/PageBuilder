@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
-  FlatList,
   Linking,
   Modal,
-  Pressable,
+  SafeAreaView as RNSafeAreaView,
   Text,
   View,
 } from 'react-native';
@@ -59,17 +58,9 @@ export default function PreviewScreen(): React.ReactElement {
   const reset = usePreviewStore(s => s.reset);
 
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [debug, setDebug] = useState<string>('booting');
 
   useEffect(() => {
-    if (!project) {
-      setDebug(
-        `no project | paramId=${String(paramProjectId)} | storeId=${String(
-          storeProject?.id,
-        )} | loading=${String(loading)} | error=${String(error)}`,
-      );
-      return;
-    }
+    if (!project) return;
     const startId =
       project.pages.find(p => p.id === project.startPageId)?.id ??
       project.pages[0]?.id ??
@@ -77,20 +68,7 @@ export default function PreviewScreen(): React.ReactElement {
     if (activePageId !== startId) {
       init(startId);
     }
-    setDebug(
-      `project="${project.name}" pages=${project.pages.length} startId=${String(
-        startId,
-      )} activePageId=${String(activePageId)}`,
-    );
-  }, [
-    project,
-    init,
-    paramProjectId,
-    storeProject?.id,
-    loading,
-    error,
-    activePageId,
-  ]);
+  }, [project, init, activePageId]);
 
   useEffect(() => {
     return () => {
@@ -165,20 +143,30 @@ export default function PreviewScreen(): React.ReactElement {
   );
 
   const handleInputChange = useCallback(
-    (component: PageComponent, value: string): void => {
-      if (component.type === 'input') {
-        setVariable(component.variableKey, value);
+    (componentId: string, value: string): void => {
+      if (!activePage) return;
+      const comp = activePage.components.find(c => c.id === componentId);
+      if (comp && comp.type === 'input') {
+        setVariable(comp.variableKey, value);
       }
     },
-    [setVariable],
+    [activePage, setVariable],
   );
 
-  const inputValues = useMemo(() => variables, [variables]);
+  const handleReset = useCallback((): void => {
+    reset();
+    if (!project) return;
+    const startId =
+      project.pages.find(p => p.id === project.startPageId)?.id ??
+      project.pages[0]?.id ??
+      null;
+    init(startId);
+  }, [init, project, reset]);
 
   if (!projectId) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <ScreenHeader title="Preview" subtitle={debug} />
+        <ScreenHeader title="Preview" />
         <EmptyState
           icon="play-circle-outline"
           title="Nothing to preview"
@@ -191,7 +179,7 @@ export default function PreviewScreen(): React.ReactElement {
   if (loading && !project && !storeProject) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <ScreenHeader title="Preview" subtitle={debug} />
+        <ScreenHeader title="Preview" />
         <LoadingState message="Preparing preview…" />
       </SafeAreaView>
     );
@@ -200,7 +188,7 @@ export default function PreviewScreen(): React.ReactElement {
   if (error && !project) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <ScreenHeader title="Preview" subtitle={debug} />
+        <ScreenHeader title="Preview" />
         <ErrorState
           message={error}
           onRetry={() => {
@@ -214,7 +202,7 @@ export default function PreviewScreen(): React.ReactElement {
   if (!project) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <ScreenHeader title="Preview" subtitle={debug} />
+        <ScreenHeader title="Preview" />
         <EmptyState
           icon="play-circle-outline"
           title="Nothing to preview"
@@ -227,7 +215,7 @@ export default function PreviewScreen(): React.ReactElement {
   if (!activePage) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <ScreenHeader title={project.name} subtitle={debug} />
+        <ScreenHeader title={project.name} />
         <EmptyState
           icon="document-outline"
           title="No pages to preview"
@@ -244,56 +232,40 @@ export default function PreviewScreen(): React.ReactElement {
     >
       <ScreenHeader
         title={`Preview · ${activePage.title}`}
-        subtitle={debug}
+        subtitle={project.name}
         rightActions={[
           {
             icon: 'refresh-outline',
-            onPress: () => {
-              reset();
-              const startId =
-                project.pages.find(p => p.id === project.startPageId)?.id ??
-                project.pages[0]?.id ??
-                null;
-              init(startId);
-            },
+            onPress: handleReset,
             accessibilityLabel: 'Reset preview',
           },
         ]}
       />
 
-      <FlatList
-        data={[activePage]}
-        keyExtractor={p => p.id}
-        contentContainerStyle={{ paddingVertical: 20 }}
-        ListHeaderComponent={
-          <View className="mx-4 mb-3 px-3 py-2 rounded-lg bg-primary/10 dark:bg-primary/20">
-            <Text className="text-[10px] text-primary dark:text-primary">
-              components on page: {activePage.components.length}
-            </Text>
-            <Text className="text-[10px] text-primary dark:text-primary mt-0.5">
-              {activePage.components
-                .map(c => c.type)
-                .join(', ') || '(none)'}
-            </Text>
-          </View>
-        }
-        renderItem={() => (
+      <View className="flex-1 bg-slate-200 dark:bg-slate-900">
+        <View
+          className="flex-1 bg-white dark:bg-dark-card m-2 rounded-2xl overflow-hidden"
+          style={{
+            shadowColor: '#000',
+            shadowOpacity: 0.15,
+            shadowRadius: 8,
+            shadowOffset: { width: 0, height: 2 },
+            elevation: 4,
+          }}
+        >
           <PageViewRenderer
             page={activePage}
+            editable={false}
             onComponentPress={handleComponentPress}
-            onInputChange={(componentId, value) => {
-              const comp = activePage.components.find(c => c.id === componentId);
-              if (comp) handleInputChange(comp, value);
-            }}
-            inputValues={inputValues}
+            onInputChange={handleInputChange}
+            inputValues={variables}
             hiddenComponentIds={hiddenComponentIds}
-            editable
           />
-        )}
-      />
+        </View>
+      </View>
 
       {history.length > 0 ? (
-        <View className="absolute left-4 bottom-5">
+        <View className="absolute left-4 bottom-6">
           <Button
             label="Back"
             icon="arrow-back-outline"
@@ -312,7 +284,7 @@ export default function PreviewScreen(): React.ReactElement {
         presentationStyle="pageSheet"
         onRequestClose={() => setVideoUrl(null)}
       >
-        <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
+        <RNSafeAreaView className="flex-1 bg-background dark:bg-dark-background">
           <ScreenHeader
             title="Video"
             onBack={() => setVideoUrl(null)}
@@ -350,7 +322,7 @@ export default function PreviewScreen(): React.ReactElement {
               />
             </View>
           </View>
-        </SafeAreaView>
+        </RNSafeAreaView>
       </Modal>
     </SafeAreaView>
   );

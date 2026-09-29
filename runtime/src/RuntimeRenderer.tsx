@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Image,
   Pressable,
   Text,
   TextInput,
   View,
-  type GestureResponderEvent,
+  type LayoutChangeEvent,
 } from 'react-native';
 import type { PageComponent, SizePreset } from '../../src/types/component';
 import type { Page } from '../../src/types/project';
@@ -18,25 +18,30 @@ export interface RuntimeRendererProps {
   onInputChange: (componentId: string, value: string) => void;
 }
 
-function spacerHeight(size: SizePreset): number {
-  switch (size) {
-    case 'small':
-      return 8;
-    case 'medium':
-      return 16;
-    case 'large':
-      return 32;
-    case 'full':
-      return 48;
-    default:
-      return 16;
-  }
+const CANVAS_WIDTH = 360;
+const CANVAS_HEIGHT = 780;
+
+interface CanvasLayout {
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+  canvasWidth: number;
+  canvasHeight: number;
+}
+
+function computeLayout(screenW: number, screenH: number): CanvasLayout {
+  const scale = Math.min(screenW / CANVAS_WIDTH, screenH / CANVAS_HEIGHT);
+  const canvasWidth = CANVAS_WIDTH * scale;
+  const canvasHeight = CANVAS_HEIGHT * scale;
+  const offsetX = (screenW - canvasWidth) / 2;
+  const offsetY = (screenH - canvasHeight) / 2;
+  return { scale, offsetX, offsetY, canvasWidth, canvasHeight };
 }
 
 function fontSizeFor(size: SizePreset): number {
   switch (size) {
     case 'small':
-      return 12;
+      return 13;
     case 'medium':
       return 16;
     case 'large':
@@ -48,71 +53,71 @@ function fontSizeFor(size: SizePreset): number {
   }
 }
 
-function alignSelf(
-  align: 'left' | 'center' | 'right',
-): 'flex-start' | 'center' | 'flex-end' {
-  if (align === 'left') return 'flex-start';
-  if (align === 'right') return 'flex-end';
-  return 'center';
+interface RenderContext {
+  scale: number;
+  onComponentPress: (component: PageComponent) => void;
+  onInputChange: (componentId: string, value: string) => void;
+  variables: Record<string, string>;
 }
 
 function renderComponent(
   component: PageComponent,
-  variables: Record<string, string>,
-  onComponentPress: (component: PageComponent) => void,
-  onInputChange: (componentId: string, value: string) => void,
+  ctx: RenderContext,
 ): React.ReactElement | null {
-  if (!component.visible) return null;
+  const { scale } = ctx;
 
   switch (component.type) {
     case 'text':
       return (
-        <Text
+        <View
           style={{
-            fontSize: fontSizeFor(component.fontSize),
-            textAlign: component.align,
-            fontWeight: component.bold ? '700' : '400',
-            color: component.color ?? '#0F172A',
+            flex: 1,
+            justifyContent: 'center',
+            paddingHorizontal: 4 * scale,
           }}
         >
-          {component.content || ' '}
-        </Text>
+          <Text
+            style={{
+              fontSize: fontSizeFor(component.fontSize) * scale,
+              lineHeight: fontSizeFor(component.fontSize) * scale * 1.35,
+              textAlign: component.align,
+              fontWeight: component.bold ? '700' : '400',
+              color: component.color ?? '#0F172A',
+            }}
+          >
+            {component.content || ' '}
+          </Text>
+        </View>
       );
 
     case 'image': {
-      const style =
-        component.size === 'full'
-          ? { width: '100%' as const, aspectRatio: 16 / 9 }
-          : {
-              width:
-                component.size === 'small'
-                  ? 120
-                  : component.size === 'medium'
-                  ? 200
-                  : 300,
-              aspectRatio: 16 / 9,
-            };
+      const radius = component.rounded ? 12 * scale : 0;
       if (!component.uri) {
         return (
           <View
-            style={[
-              style,
-              {
-                backgroundColor: '#E2E8F0',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: component.rounded ? 12 : 0,
-              },
-            ]}
+            style={{
+              flex: 1,
+              backgroundColor: '#E2E8F0',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: radius,
+            }}
           >
-            <Text style={{ color: '#64748B', fontSize: 12 }}>No image</Text>
+            <Text style={{ color: '#64748B', fontSize: 11 * scale }}>
+              No image
+            </Text>
           </View>
         );
       }
       return (
         <Image
           source={{ uri: component.uri }}
-          style={[style, { borderRadius: component.rounded ? 12 : 0 }]}
+          style={{
+            flex: 1,
+            width: '100%',
+            height: '100%',
+            borderRadius: radius,
+          }}
           resizeMode="cover"
         />
       );
@@ -121,23 +126,22 @@ function renderComponent(
     case 'video':
       return (
         <Pressable
-          onPress={() => onComponentPress(component)}
+          onPress={() => ctx.onComponentPress(component)}
           style={{
-            width: '100%',
-            aspectRatio: 16 / 9,
+            flex: 1,
             backgroundColor: '#000000',
             alignItems: 'center',
             justifyContent: 'center',
-            borderRadius: 12,
+            borderRadius: 12 * scale,
           }}
         >
-          <Text style={{ color: '#FFFFFF', fontSize: 40 }}>▶</Text>
+          <Text style={{ color: '#FFFFFF', fontSize: 40 * scale }}>▶</Text>
           <Text
             style={{
               color: '#E2E8F0',
-              fontSize: 12,
-              marginTop: 8,
-              paddingHorizontal: 12,
+              fontSize: 11 * scale,
+              marginTop: 4 * scale,
+              paddingHorizontal: 8 * scale,
               textAlign: 'center',
             }}
             numberOfLines={2}
@@ -150,29 +154,30 @@ function renderComponent(
     case 'button':
       return (
         <Pressable
-          onPress={() => onComponentPress(component)}
+          onPress={() => ctx.onComponentPress(component)}
           style={{
+            flex: 1,
             backgroundColor:
               component.variant === 'primary'
                 ? '#2563EB'
                 : component.variant === 'danger'
                 ? '#EF4444'
                 : '#64748B',
-            paddingVertical: 12,
-            paddingHorizontal: 24,
-            borderRadius: 12,
-            alignSelf: alignSelf(component.align),
-            minWidth: component.size === 'full' ? '100%' : undefined,
+            borderRadius: 10 * scale,
+            alignItems: 'center',
+            justifyContent: 'center',
+            paddingHorizontal: 12 * scale,
           }}
           accessibilityRole="button"
         >
           <Text
             style={{
               color: '#FFFFFF',
-              fontSize: fontSizeFor(component.size),
+              fontSize: 15 * scale,
               fontWeight: '600',
               textAlign: 'center',
             }}
+            numberOfLines={1}
           >
             {component.label || 'Button'}
           </Text>
@@ -180,43 +185,56 @@ function renderComponent(
       );
 
     case 'spacer':
-      return <View style={{ height: spacerHeight(component.size) }} />;
+      return (
+        <View
+          style={{
+            flex: 1,
+            borderWidth: 1,
+            borderStyle: 'dashed',
+            borderColor: '#E2E8F0',
+            borderRadius: 6 * scale,
+          }}
+        />
+      );
 
     case 'divider': {
-      const height =
+      const thickness =
         component.thickness === 'thin'
           ? 1
           : component.thickness === 'medium'
           ? 2
           : 4;
+      const h = Math.max(thickness * scale, thickness);
       return (
-        <View
-          style={{
-            height,
-            backgroundColor: '#E2E8F0',
-            width: '100%',
-            borderRadius: height / 2,
-          }}
-        />
+        <View style={{ flex: 1, justifyContent: 'center' }}>
+          <View
+            style={{
+              height: h,
+              backgroundColor: '#E2E8F0',
+              width: '100%',
+              borderRadius: h / 2,
+            }}
+          />
+        </View>
       );
     }
 
     case 'input':
       return (
         <TextInput
-          value={variables[component.variableKey] ?? ''}
-          onChangeText={value => onInputChange(component.id, value)}
+          value={ctx.variables[component.variableKey] ?? ''}
+          onChangeText={value => ctx.onInputChange(component.id, value)}
           placeholder={component.placeholder || 'Enter text'}
           placeholderTextColor="#94A3B8"
           style={{
+            flex: 1,
             backgroundColor: '#FFFFFF',
             borderColor: '#E2E8F0',
             borderWidth: 1,
-            borderRadius: 12,
-            paddingHorizontal: 12,
-            paddingVertical: 10,
+            borderRadius: 10 * scale,
+            paddingHorizontal: 10 * scale,
             color: '#0F172A',
-            fontSize: 16,
+            fontSize: 15 * scale,
           }}
         />
       );
@@ -224,16 +242,38 @@ function renderComponent(
     case 'row': {
       const gap =
         component.gap === 'small' ? 6 : component.gap === 'large' ? 20 : 12;
+      if (component.children.length === 0) {
+        return (
+          <View
+            style={{
+              flex: 1,
+              borderWidth: 1,
+              borderStyle: 'dashed',
+              borderColor: '#E2E8F0',
+              borderRadius: 10 * scale,
+            }}
+          />
+        );
+      }
       return (
-        <View style={{ flexDirection: 'row', gap, alignItems: 'center' }}>
+        <View
+          style={{
+            flex: 1,
+            flexDirection: 'row',
+            gap: gap * scale,
+          }}
+        >
           {component.children.map(child => (
-            <View key={child.id} style={{ flex: 1 }}>
-              {renderComponent(
-                child,
-                variables,
-                onComponentPress,
-                onInputChange,
-              )}
+            <View
+              key={child.id}
+              style={{
+                flex: Math.max(child.width, 1),
+                opacity: child.visible ? 1 : 0.3,
+              }}
+            >
+              <View style={{ flex: 1 }}>
+                {renderComponent(child, ctx)}
+              </View>
             </View>
           ))}
         </View>
@@ -252,21 +292,75 @@ export default function RuntimeRenderer({
   onComponentPress,
   onInputChange,
 }: RuntimeRendererProps): React.ReactElement {
+  const [size, setSize] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
+
+  const layout = useMemo<CanvasLayout | null>(() => {
+    if (size.width === 0 || size.height === 0) return null;
+    return computeLayout(size.width, size.height);
+  }, [size]);
+
+  const handleLayout = (e: LayoutChangeEvent): void => {
+    const { width, height } = e.nativeEvent.layout;
+    if (width !== size.width || height !== size.height) {
+      setSize({ width, height });
+    }
+  };
+
+  const sortedComponents = useMemo(() => {
+    return [...page.components].sort((a, b) => a.zIndex - b.zIndex);
+  }, [page.components]);
+
   return (
-    <View style={{ width: '100%', paddingHorizontal: 16 }}>
-      {page.components.map(component => {
-        if (hiddenComponentIds[component.id]) return null;
-        return (
-          <View key={component.id} style={{ marginBottom: 16 }}>
-            {renderComponent(
-              component,
-              variables,
-              onComponentPress,
-              onInputChange,
-            )}
-          </View>
-        );
-      })}
+    <View
+      onLayout={handleLayout}
+      style={{ flex: 1, overflow: 'hidden' }}
+    >
+      {layout ? (
+        <View
+          style={{
+            position: 'absolute',
+            left: layout.offsetX,
+            top: layout.offsetY,
+            width: layout.canvasWidth,
+            height: layout.canvasHeight,
+            overflow: 'hidden',
+          }}
+        >
+          {sortedComponents.map(component => {
+            if (!component.visible) return null;
+            if (hiddenComponentIds[component.id]) return null;
+
+            const left = component.x * layout.scale;
+            const top = component.y * layout.scale;
+            const width = component.width * layout.scale;
+            const height = component.height * layout.scale;
+
+            return (
+              <View
+                key={component.id}
+                style={{
+                  position: 'absolute',
+                  left,
+                  top,
+                  width,
+                  height,
+                  zIndex: component.zIndex,
+                }}
+              >
+                {renderComponent(component, {
+                  scale: layout.scale,
+                  onComponentPress,
+                  onInputChange,
+                  variables,
+                })}
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
     </View>
   );
 }

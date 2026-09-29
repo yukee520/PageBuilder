@@ -19,6 +19,7 @@ import EmptyState from '@/components/EmptyState';
 import PageViewRenderer from '@/components/PageViewRenderer';
 import Button from '@/components/Button';
 import { useProject } from '@/hooks/useProject';
+import { useProjectStore } from '@/store/useProjectStore';
 import { usePreviewStore } from '@/store/usePreviewStore';
 import type { InteractionAction } from '@/types/action';
 import type { PageComponent } from '@/types/component';
@@ -32,9 +33,19 @@ export default function PreviewScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Rt>();
   const params = route.params ?? {};
-  const projectId = params.projectId ?? null;
+  const paramProjectId = params.projectId ?? null;
 
-  const { project, loading, error, reload } = useProject(projectId);
+  const storeProject = useProjectStore(s => s.project);
+  const fallbackProjectId = storeProject?.id ?? null;
+  const projectId = paramProjectId ?? fallbackProjectId;
+
+  const { project: loadedProject, loading, error, reload } = useProject(projectId);
+
+  const project: Project | null = useMemo(() => {
+    if (loadedProject) return loadedProject;
+    if (storeProject && storeProject.id === projectId) return storeProject;
+    return storeProject ?? null;
+  }, [loadedProject, storeProject, projectId]);
 
   const activePageId = usePreviewStore(s => s.activePageId);
   const history = usePreviewStore(s => s.history);
@@ -50,13 +61,12 @@ export default function PreviewScreen(): React.ReactElement {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (project) {
-      const startId =
-        project.pages.find(p => p.id === project.startPageId)?.id ??
-        project.pages[0]?.id ??
-        null;
-      init(startId);
-    }
+    if (!project) return;
+    const startId =
+      project.pages.find(p => p.id === project.startPageId)?.id ??
+      project.pages[0]?.id ??
+      null;
+    init(startId);
   }, [project, init]);
 
   useEffect(() => {
@@ -149,27 +159,27 @@ export default function PreviewScreen(): React.ReactElement {
         <EmptyState
           icon="play-circle-outline"
           title="Nothing to preview"
-          description="Open a project and tap Preview in the editor."
+          description="Open a project from the Projects tab, then come back here or tap Preview in the editor."
         />
       </SafeAreaView>
     );
   }
 
-  if (loading) {
+  if (loading && !project) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <ScreenHeader title="Preview" onBack={() => navigation.goBack()} />
+        <ScreenHeader title="Preview" />
         <LoadingState message="Preparing preview…" />
       </SafeAreaView>
     );
   }
 
-  if (error || !project) {
+  if (error && !project) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <ScreenHeader title="Preview" onBack={() => navigation.goBack()} />
+        <ScreenHeader title="Preview" />
         <ErrorState
-          message={error ?? 'Project not found.'}
+          message={error}
           onRetry={() => {
             void reload();
           }}
@@ -178,14 +188,27 @@ export default function PreviewScreen(): React.ReactElement {
     );
   }
 
+  if (!project) {
+    return (
+      <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
+        <ScreenHeader title="Preview" />
+        <EmptyState
+          icon="play-circle-outline"
+          title="Nothing to preview"
+          description="Open a project from the Projects tab first."
+        />
+      </SafeAreaView>
+    );
+  }
+
   if (!activePage) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <ScreenHeader title={project.name} onBack={() => navigation.goBack()} />
+        <ScreenHeader title={project.name} />
         <EmptyState
           icon="document-outline"
           title="No pages to preview"
-          description="Add a page first."
+          description="Add a page in the editor first."
         />
       </SafeAreaView>
     );
@@ -199,7 +222,6 @@ export default function PreviewScreen(): React.ReactElement {
       <ScreenHeader
         title="Preview"
         subtitle={activePage.title}
-        onBack={() => navigation.goBack()}
         rightActions={[
           {
             icon: 'refresh-outline',

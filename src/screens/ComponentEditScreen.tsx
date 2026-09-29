@@ -598,3 +598,160 @@ function renderAppearanceEditor(
         </>
       );
 
+    case 'button':
+      return (
+        <>
+          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
+            Size
+          </Text>
+          <SizeRow
+            value={c.size}
+            onChange={value => patch({ size: value } as Partial<ButtonComponent>)}
+          />
+          <View className="h-3" />
+          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
+            Align
+          </Text>
+          <AlignRow
+            value={c.align}
+            onChange={value =>
+              patch({ align: value } as Partial<ButtonComponent>)
+            }
+          />
+        </>
+      );
+
+    case 'spacer':
+      return (
+        <>
+          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
+            Size
+          </Text>
+          <SizeRow
+            value={c.size}
+            onChange={value => patch({ size: value } as Partial<SpacerComponent>)}
+          />
+        </>
+      );
+
+    case 'divider':
+      return (
+        <>
+          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
+            Thickness
+          </Text>
+          <View className="flex-row">
+            {(['thin', 'medium', 'thick'] as const).map(t => {
+              const active = c.thickness === t;
+              return (
+                <Pressable
+                  key={t}
+                  onPress={() =>
+                    patch({ thickness: t } as Partial<DividerComponent>)
+                  }
+                  className={[
+                    'px-3 py-2 rounded-lg mr-2 border',
+                    active
+                      ? 'bg-primary border-primary'
+                      : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
+                  ].join(' ')}
+                >
+                  <Text
+                    className={[
+                      'text-xs font-semibold capitalize',
+                      active ? 'text-white' : 'text-text dark:text-dark-text',
+                    ].join(' ')}
+                  >
+                    {t}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      );
+
+    case 'video':
+    case 'row':
+    case 'input':
+      return (
+        <Text className="text-xs text-muted dark:text-dark-muted">
+          No appearance options for this component yet.
+        </Text>
+      );
+  }
+}
+
+function SizeRow({
+  value,
+  onChange,
+}: {
+  value: SizePreset;
+  onChange: (v: SizePreset) => void;
+}): React.ReactElement {
+  return (
+    <View className="flex-row flex-wrap">
+      {SIZE_PRESETS.map(s => {
+        const active = value === s;
+        return (
+          <Pressable
+            key={s}
+            onPress={() => onChange(s)}
+            className={[
+              'px-3 py-2 rounded-lg mr-2 mb-2 border',
+              active
+                ? 'bg-primary border-primary'
+                : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
+            ].join(' ')}
+          >
+            <Text
+              className={[
+                'text-xs font-semibold capitalize',
+                active ? 'text-white' : 'text-text dark:text-dark-text',
+              ].join(' ')}
+            >
+              {s}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function AlignRow({
+  value,
+  onChange,
+}: {
+  value: HorizontalAlign;
+  onChange: (v: HorizontalAlign) => void;
+}): React.ReactElement {
+  return (
+    <View className="flex-row">
+      {ALIGN_OPTIONS.map(a => {
+        const active = value === a;
+        return (
+          <Pressable
+            key={a}
+            onPress={() => onChange(a)}
+            className={[
+              'px-3 py-2 rounded-lg mr-2 border',
+              active
+                ? 'bg-primary border-primary'
+                : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
+            ].join(' ')}
+          >
+            <Text
+              className={[
+                'text-xs font-semibold capitalize',
+                active ? 'text-white' : 'text-text dark:text-dark-text',
+              ].join(' ')}
+            >
+              {a}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}

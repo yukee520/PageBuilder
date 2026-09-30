@@ -60,7 +60,6 @@ export default function EditorScreen(): React.ReactElement {
   const toggleComponentVisibility = useProjectStore(
     s => s.toggleComponentVisibility,
   );
-  const moveComponent = useProjectStore(s => s.moveComponent);
 
   const [showPicker, setShowPicker] = useState<boolean>(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -166,14 +165,9 @@ export default function EditorScreen(): React.ReactElement {
       setShowPicker(false);
       if (newId) {
         setSelectedId(newId);
-        navigation.navigate('ComponentEdit', {
-          projectId,
-          pageId: activePage.id,
-          componentId: newId,
-        });
       }
     },
-    [activePage, addComponent, navigation, projectId],
+    [activePage, addComponent],
   );
 
   const handleComponentChange = useCallback(
@@ -364,7 +358,7 @@ export default function EditorScreen(): React.ReactElement {
         <Pressable
           onPress={handleDeselect}
           style={{ flex: 1 }}
-          disabled={previewMode || !selectedId}
+          disabled={previewMode}
         >
           <View
             className="flex-1 bg-white dark:bg-dark-card m-2 rounded-2xl overflow-hidden"
@@ -453,7 +447,9 @@ export default function EditorScreen(): React.ReactElement {
               onPress={handleSendBackward}
             />
             <ToolbarButton
-              icon={selectedComponent.visible ? 'eye-off-outline' : 'eye-outline'}
+              icon={
+                selectedComponent.visible ? 'eye-off-outline' : 'eye-outline'
+              }
               label={selectedComponent.visible ? 'Hide' : 'Show'}
               onPress={handleToggleVisibleSelected}
             />
@@ -474,7 +470,7 @@ export default function EditorScreen(): React.ReactElement {
         >
           <Pressable onPress={() => undefined}>
             <View className="bg-card dark:bg-dark-card rounded-t-3xl p-4 pb-8">
-              <View className="w-10 h-1 rounded-full bg-border dark:bg-dark-border self-center mb-3" />
+              <View className="w-10 h-1 rounded-full bg-border dark:border-dark-border self-center mb-3" />
               <Text className="text-base font-semibold text-text dark:text-dark-text mb-3">
                 Add component
               </Text>
@@ -529,10 +525,7 @@ function ToolbarButton({
       accessibilityRole="button"
     >
       <Ionicons name={icon} size={14} color={color} />
-      <Text
-        className="text-xs font-semibold ml-1"
-        style={{ color }}
-      >
+      <Text className="text-sm font-semibold ml-1" style={{ color }}>
         {label}
       </Text>
     </Pressable>

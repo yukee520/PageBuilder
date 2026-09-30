@@ -242,17 +242,8 @@ export default function PreviewScreen(): React.ReactElement {
         ]}
       />
 
-      <View className="flex-1 bg-slate-200 dark:bg-slate-900">
-        <View
-          className="flex-1 bg-white dark:bg-dark-card m-2 rounded-2xl overflow-hidden"
-          style={{
-            shadowColor: '#000',
-            shadowOpacity: 0.15,
-            shadowRadius: 8,
-            shadowOffset: { width: 0, height: 2 },
-            elevation: 4,
-          }}
-        >
+      <View className="flex-1 bg-slate-300 dark:bg-slate-950">
+        <View className="flex-1 m-2 rounded-2xl overflow-hidden">
           <PageViewRenderer
             page={activePage}
             editable={false}
@@ -260,6 +251,7 @@ export default function PreviewScreen(): React.ReactElement {
             onInputChange={handleInputChange}
             inputValues={variables}
             hiddenComponentIds={hiddenComponentIds}
+            canvasBackgroundColor="#FFFFFF"
           />
         </View>
       </View>

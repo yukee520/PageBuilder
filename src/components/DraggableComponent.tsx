@@ -32,7 +32,7 @@ export interface DraggableComponentProps {
 }
 
 const HANDLE_SIZE = 28;
-const EDGE_OVERSHOOT = 20;
+const EDGE_OVERSHOOT = 200;
 
 interface BoxSnapshot {
   x: number;

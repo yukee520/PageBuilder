@@ -1,13 +1,9 @@
 import type { PageComponent } from '@/types/component';
 import type { Page, Project } from '@/types/project';
-import {
-  CANVAS_HEIGHT,
-  CANVAS_WIDTH,
-  DEFAULT_COMPONENT_SIZE,
-} from '@/utils/canvas';
+import { DEFAULT_COMPONENT_SIZE_FRAC } from '@/utils/canvas';
 
-const VERTICAL_GAP = 12;
-const HORIZONTAL_MARGIN = 16;
+const VERTICAL_GAP_FRAC = 0.015;
+const HORIZONTAL_MARGIN_FRAC = 0.05;
 
 interface LegacyBox {
   x?: number;
@@ -17,82 +13,123 @@ interface LegacyBox {
   zIndex?: number;
 }
 
-function hasPosition(c: PageComponent | (PageComponent & LegacyBox)): boolean {
-  const candidate = c as LegacyBox;
+function looksLikeFraction(c: PageComponent): boolean {
+  const b = c as LegacyBox;
+  if (
+    typeof b.x !== 'number' ||
+    typeof b.y !== 'number' ||
+    typeof b.width !== 'number' ||
+    typeof b.height !== 'number'
+  ) {
+    return false;
+  }
   return (
-    typeof candidate.x === 'number' &&
-    typeof candidate.y === 'number' &&
-    typeof candidate.width === 'number' &&
-    typeof candidate.height === 'number'
+    b.x >= -1 &&
+    b.x <= 2 &&
+    b.y >= -1 &&
+    b.y <= 2 &&
+    b.width > 0 &&
+    b.width <= 2 &&
+    b.height > 0 &&
+    b.height <= 2
   );
 }
 
-function inferSize(
+function inferDefaultSize(
   c: PageComponent,
 ): { width: number; height: number } {
-  const fallback = DEFAULT_COMPONENT_SIZE[c.type] ?? {
-    width: 200,
-    height: 40,
+  const fallback = DEFAULT_COMPONENT_SIZE_FRAC[c.type] ?? {
+    width: 0.6,
+    height: 0.06,
   };
 
   if (c.type === 'divider') {
     const thickness = c.thickness;
     return {
       width: fallback.width,
-      height: thickness === 'thick' ? 6 : thickness === 'medium' ? 4 : 2,
+      height: thickness === 'thick' ? 0.01 : thickness === 'medium' ? 0.007 : 0.004,
     };
-  }
-
-  if (c.type === 'spacer') {
-    return fallback;
   }
 
   return fallback;
 }
 
-function layoutComponents(components: PageComponent[]): PageComponent[] {
-  let yCursor = HORIZONTAL_MARGIN;
-  let z = 1;
+function normalizeComponent(
+  c: PageComponent,
+  yCursor: number,
+  z: number,
+): { component: PageComponent; nextYCursor: number } {
+  const existing = c as LegacyBox;
 
-  return components.map(component => {
-    if (hasPosition(component)) {
-      const withZ = {
-        ...component,
-        zIndex:
-          typeof (component as LegacyBox).zIndex === 'number'
-            ? (component as LegacyBox).zIndex
-            : z,
-      } as PageComponent;
-      z += 1;
-      return withZ;
-    }
+  if (looksLikeFraction(c)) {
+    return {
+      component: {
+        ...c,
+        zIndex: typeof existing.zIndex === 'number' ? existing.zIndex : z,
+      } as PageComponent,
+      nextYCursor: Math.max(yCursor, (existing.y ?? 0) + (existing.height ?? 0) + VERTICAL_GAP_FRAC),
+    };
+  }
 
-    const { width, height } = inferSize(component);
+  const hasVirtualPosition =
+    typeof existing.x === 'number' &&
+    typeof existing.y === 'number' &&
+    typeof existing.width === 'number' &&
+    typeof existing.height === 'number' &&
+    (existing.x > 2 || existing.y > 2 || existing.width > 2 || existing.height > 2);
 
-    const positioned = {
-      ...component,
-      x: HORIZONTAL_MARGIN,
-      y: yCursor,
-      width,
-      height,
-      zIndex: z,
+  if (hasVirtualPosition) {
+    const migrated = {
+      ...c,
+      x: Math.max(0, Math.min(1, (existing.x as number) / 360)),
+      y: Math.max(0, Math.min(1, (existing.y as number) / 800)),
+      width: Math.max(0.05, Math.min(1, (existing.width as number) / 360)),
+      height: Math.max(0.01, Math.min(1, (existing.height as number) / 800)),
+      zIndex: typeof existing.zIndex === 'number' ? existing.zIndex : z,
     } as PageComponent;
 
-    yCursor += height + VERTICAL_GAP;
-    if (yCursor > CANVAS_HEIGHT - 40) {
-      yCursor = HORIZONTAL_MARGIN;
-    }
+    return {
+      component: migrated,
+      nextYCursor: Math.max(
+        yCursor,
+        migrated.y + migrated.height + VERTICAL_GAP_FRAC,
+      ),
+    };
+  }
 
-    z += 1;
-    return positioned;
-  });
+  const { width, height } = inferDefaultSize(c);
+  const migrated = {
+    ...c,
+    x: HORIZONTAL_MARGIN_FRAC,
+    y: yCursor,
+    width,
+    height,
+    zIndex: z,
+  } as PageComponent;
+
+  return {
+    component: migrated,
+    nextYCursor: yCursor + height + VERTICAL_GAP_FRAC,
+  };
 }
 
 function migratePage(page: Page): Page {
   const components = Array.isArray(page.components) ? page.components : [];
+  let yCursor = HORIZONTAL_MARGIN_FRAC;
+  let z = 1;
+
+  const nextComponents: PageComponent[] = [];
+
+  for (const c of components) {
+    const result = normalizeComponent(c, yCursor, z);
+    nextComponents.push(result.component);
+    yCursor = result.nextYCursor;
+    z += 1;
+  }
+
   return {
     ...page,
-    components: layoutComponents(components),
+    components: nextComponents,
   };
 }
 
@@ -102,16 +139,27 @@ export function migrateProject(project: Project): Project {
   let changed = false;
 
   const pages = project.pages.map(page => {
+    const original = page.components ?? [];
     const migrated = migratePage(page);
-    const sizeChanged = migrated.components.some((c, i) => {
-      const original = page.components[i] as LegacyBox | undefined;
-      return (
-        !original ||
-        typeof original.x !== 'number' ||
-        typeof original.y !== 'number'
-      );
-    });
-    if (sizeChanged) changed = true;
+    if (
+      migrated.components.length !== original.length ||
+      migrated.components.some((c, i) => {
+        const o = original[i] as LegacyBox | undefined;
+        if (!o) return true;
+        return (
+          typeof o.x !== 'number' ||
+          typeof o.y !== 'number' ||
+          typeof o.width !== 'number' ||
+          typeof o.height !== 'number' ||
+          o.x > 2 ||
+          o.y > 2 ||
+          o.width > 2 ||
+          o.height > 2
+        );
+      })
+    ) {
+      changed = true;
+    }
     return migrated;
   });
 
@@ -122,8 +170,3 @@ export function migrateProject(project: Project): Project {
     pages,
   };
 }
-
-export const CANVAS_DIMENSIONS = {
-  width: CANVAS_WIDTH,
-  height: CANVAS_HEIGHT,
-};

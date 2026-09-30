@@ -17,7 +17,6 @@ import ErrorState from '@/components/ErrorState';
 import EmptyState from '@/components/EmptyState';
 import PageTabBar from '@/components/PageTabBar';
 import PageViewRenderer from '@/components/PageViewRenderer';
-import Button from '@/components/Button';
 import { useProject } from '@/hooks/useProject';
 import { saveProjectFile } from '@/hooks/useProjects';
 import { useProjectStore } from '@/store/useProjectStore';
@@ -355,47 +354,41 @@ export default function EditorScreen(): React.ReactElement {
       />
 
       <View className="flex-1 bg-slate-200 dark:bg-slate-900">
-        <Pressable
-          onPress={handleDeselect}
-          style={{ flex: 1 }}
-          disabled={previewMode}
+        <View
+          className="flex-1 bg-white dark:bg-dark-card m-2 rounded-2xl"
+          style={{
+            shadowColor: '#000',
+            shadowOpacity: 0.15,
+            shadowRadius: 8,
+            shadowOffset: { width: 0, height: 2 },
+            elevation: 4,
+          }}
         >
-          <View
-            className="flex-1 bg-white dark:bg-dark-card m-2 rounded-2xl overflow-hidden"
-            style={{
-              shadowColor: '#000',
-              shadowOpacity: 0.15,
-              shadowRadius: 8,
-              shadowOffset: { width: 0, height: 2 },
-              elevation: 4,
-            }}
-          >
-            <PageViewRenderer
-              page={activePage}
-              editable={!previewMode}
-              selectedComponentId={selectedId}
-              onSelectComponent={handleSelectComponent}
-              onComponentChange={handleComponentChange}
-              onRequestEdit={handleRequestEdit}
-              onComponentPress={component => {
-                if (component.actions.length === 0) return;
-                for (const action of component.actions) {
-                  if (action.type === 'navigate' && action.pageId) {
-                    setActivePage(action.pageId);
-                  } else if (action.type === 'showAlert') {
-                    Alert.alert(
-                      action.title || 'Notice',
-                      action.message || '',
-                    );
-                  } else if (action.type === 'openUrl' && action.url) {
-                    Alert.alert('Link', action.url);
-                  }
+          <PageViewRenderer
+            page={activePage}
+            editable={!previewMode}
+            selectedComponentId={selectedId}
+            onSelectComponent={handleSelectComponent}
+            onComponentChange={handleComponentChange}
+            onRequestEdit={handleRequestEdit}
+            onComponentPress={component => {
+              if (component.actions.length === 0) return;
+              for (const action of component.actions) {
+                if (action.type === 'navigate' && action.pageId) {
+                  setActivePage(action.pageId);
+                } else if (action.type === 'showAlert') {
+                  Alert.alert(
+                    action.title || 'Notice',
+                    action.message || '',
+                  );
+                } else if (action.type === 'openUrl' && action.url) {
+                  Alert.alert('Link', action.url);
                 }
-              }}
-              inputValues={{}}
-            />
-          </View>
-        </Pressable>
+              }
+            }}
+            inputValues={{}}
+          />
+        </View>
 
         {!previewMode ? (
           <Pressable
@@ -459,6 +452,11 @@ export default function EditorScreen(): React.ReactElement {
               danger
               onPress={handleDeleteSelected}
             />
+            <ToolbarButton
+              icon="close-circle-outline"
+              label="Deselect"
+              onPress={handleDeselect}
+            />
           </View>
         </View>
       ) : null}
@@ -470,7 +468,7 @@ export default function EditorScreen(): React.ReactElement {
         >
           <Pressable onPress={() => undefined}>
             <View className="bg-card dark:bg-dark-card rounded-t-3xl p-4 pb-8">
-              <View className="w-10 h-1 rounded-full bg-border dark:border-dark-border self-center mb-3" />
+              <View className="w-10 h-1 rounded-full bg-border dark:bg-dark-border self-center mb-3" />
               <Text className="text-base font-semibold text-text dark:text-dark-text mb-3">
                 Add component
               </Text>

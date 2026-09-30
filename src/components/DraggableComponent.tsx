@@ -1,16 +1,13 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import {
-  GestureResponderEvent,
   PanResponder,
-  PanResponderGestureState,
   Pressable,
   View,
-  type LayoutChangeEvent,
+  type GestureResponderEvent,
+  type PanResponderGestureState,
 } from 'react-native';
 import type { PageComponent } from '@/types/component';
 import {
-  CANVAS_HEIGHT,
-  CANVAS_WIDTH,
   MIN_COMPONENT_HEIGHT,
   MIN_COMPONENT_WIDTH,
   clampToCanvas,
@@ -33,7 +30,14 @@ export interface DraggableComponentProps {
   children: React.ReactNode;
 }
 
-const HANDLE_SIZE = 22;
+const HANDLE_SIZE = 26;
+
+interface BoxSnapshot {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export default function DraggableComponent({
   component,
@@ -45,60 +49,76 @@ export default function DraggableComponent({
   onRequestEdit,
   children,
 }: DraggableComponentProps): React.ReactElement {
-  const startBoxRef = useRef<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  }>({
+  const snapshotRef = useRef<BoxSnapshot>({
     x: component.x,
     y: component.y,
     width: component.width,
     height: component.height,
   });
 
-  const componentRef = useRef<PageComponent>(component);
-  componentRef.current = component;
+  const componentIdRef = useRef<string>(component.id);
+  componentIdRef.current = component.id;
 
-  const commit = useCallback(
-    (box: { x: number; y: number; width: number; height: number }): void => {
-      onChange(component.id, box);
-    },
-    [component.id, onChange],
-  );
+  const layoutRef = useRef<CanvasLayout>(layout);
+  layoutRef.current = layout;
 
-  const buildPanResponder = useCallback(
-    (corner?: ResizeCorner) =>
+  const editableRef = useRef<boolean>(editable);
+  editableRef.current = editable;
+
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+
+  const onRequestEditRef = useRef(onRequestEdit);
+  onRequestEditRef.current = onRequestEdit;
+
+  const grantTimeRef = useRef<number>(0);
+  const movedRef = useRef<boolean>(false);
+
+  const makeResponder = useCallback(
+    (corner: ResizeCorner | null) =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => editable,
+        onStartShouldSetPanResponder: () => editableRef.current,
+        onStartShouldSetPanResponderCapture: () => false,
         onMoveShouldSetPanResponder: (
           _e: GestureResponderEvent,
           g: PanResponderGestureState,
-        ) => editable && (Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2),
+        ) => editableRef.current && (Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2),
+        onMoveShouldSetPanResponderCapture: (
+          _e: GestureResponderEvent,
+          g: PanResponderGestureState,
+        ) => editableRef.current && (Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2),
+        onPanResponderTerminationRequest: () => false,
+        onShouldBlockNativeResponder: () => true,
         onPanResponderGrant: () => {
-          startBoxRef.current = {
-            x: componentRef.current.x,
-            y: componentRef.current.y,
-            width: componentRef.current.width,
-            height: componentRef.current.height,
+          const c = componentIdRef.current;
+          const comp = {
+            x: snapshotRef.current.x,
+            y: snapshotRef.current.y,
           };
+          void comp;
+          onSelectRef.current(c);
+          grantTimeRef.current = Date.now();
+          movedRef.current = false;
         },
         onPanResponderMove: (
           _e: GestureResponderEvent,
           g: PanResponderGestureState,
         ) => {
-          const s = startBoxRef.current;
-          const dvx = g.dx / layout.scale;
-          const dvy = g.dy / layout.scale;
+          if (Math.abs(g.dx) > 3 || Math.abs(g.dy) > 3) {
+            movedRef.current = true;
+          }
+
+          const s = snapshotRef.current;
+          const scale = layoutRef.current.scale;
+          const dvx = g.dx / scale;
+          const dvy = g.dy / scale;
 
           if (!corner) {
-            const next = clampToCanvas(
-              s.x + dvx,
-              s.y + dvy,
-              s.width,
-              s.height,
-            );
-            commit(next);
+            const next = clampToCanvas(s.x + dvx, s.y + dvy, s.width, s.height);
+            onChangeRef.current(componentIdRef.current, next);
             return;
           }
 
@@ -139,58 +159,49 @@ export default function DraggableComponent({
           }
 
           const clamped = clampToCanvas(nx, ny, nw, nh);
-          commit(clamped);
+          onChangeRef.current(componentIdRef.current, clamped);
+        },
+        onPanResponderRelease: () => {
+          const duration = Date.now() - grantTimeRef.current;
+          if (!movedRef.current && duration < 400) {
+            onSelectRef.current(componentIdRef.current);
+          }
+        },
+        onPanResponderTerminate: () => {
+          movedRef.current = false;
         },
       }),
-    [commit, editable, layout.scale],
+    [],
   );
 
-  const dragResponderRef = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: () => false,
-    }),
-  );
-  dragResponderRef.current = buildPanResponder();
+  const dragResponder = useMemo(() => makeResponder(null), [makeResponder]);
+  const tlResponder = useMemo(() => makeResponder('tl'), [makeResponder]);
+  const trResponder = useMemo(() => makeResponder('tr'), [makeResponder]);
+  const blResponder = useMemo(() => makeResponder('bl'), [makeResponder]);
+  const brResponder = useMemo(() => makeResponder('br'), [makeResponder]);
 
-  const tlResponderRef = useRef(dragResponderRef.current);
-  const trResponderRef = useRef(dragResponderRef.current);
-  const blResponderRef = useRef(dragResponderRef.current);
-  const brResponderRef = useRef(dragResponderRef.current);
-
-  tlResponderRef.current = buildPanResponder('tl');
-  trResponderRef.current = buildPanResponder('tr');
-  blResponderRef.current = buildPanResponder('bl');
-  brResponderRef.current = buildPanResponder('br');
+  React.useEffect(() => {
+    snapshotRef.current = {
+      x: component.x,
+      y: component.y,
+      width: component.width,
+      height: component.height,
+    };
+  }, [component.x, component.y, component.width, component.height]);
 
   const left = layout.offsetX + component.x * layout.scale;
   const top = layout.offsetY + component.y * layout.scale;
   const width = component.width * layout.scale;
   const height = component.height * layout.scale;
 
-  const handleTouch = useCallback(
-    (e: GestureResponderEvent) => {
-      e.stopPropagation();
-    },
-    [],
-  );
-
-  const handlePress = useCallback(() => {
-    if (!editable) return;
-    onSelect(component.id);
-  }, [component.id, editable, onSelect]);
-
-  const handleLongPress = useCallback(() => {
-    if (!editable) return;
-    onSelect(component.id);
-    onRequestEdit?.(component.id);
-  }, [component.id, editable, onRequestEdit, onSelect]);
-
-  const handleLayout = useCallback((_e: LayoutChangeEvent) => undefined, []);
+  const handleLongPress = useCallback((): void => {
+    if (!editableRef.current) return;
+    onSelectRef.current(componentIdRef.current);
+    onRequestEditRef.current?.(componentIdRef.current);
+  }, []);
 
   return (
     <View
-      onLayout={handleLayout}
       style={{
         position: 'absolute',
         left,
@@ -199,17 +210,18 @@ export default function DraggableComponent({
         height,
         zIndex: component.zIndex,
       }}
-      pointerEvents={editable ? 'auto' : 'box-none'}
+      pointerEvents={editable ? 'box-none' : 'box-none'}
     >
       <View
-        {...(editable ? dragResponderRef.current.panHandlers : {})}
+        {...(editable ? dragResponder.panHandlers : {})}
         style={{ flex: 1 }}
+        pointerEvents={editable ? 'auto' : 'box-none'}
       >
         <Pressable
-          onPress={handlePress}
           onLongPress={editable ? handleLongPress : undefined}
-          delayLongPress={400}
+          delayLongPress={450}
           style={{ flex: 1 }}
+          pointerEvents={editable ? 'auto' : 'box-none'}
         >
           {children}
         </Pressable>
@@ -231,24 +243,24 @@ export default function DraggableComponent({
             }}
           />
           <View
-            {...tlResponderRef.current.panHandlers}
-            onStartShouldSetResponder={handleTouch}
+            {...tlResponder.panHandlers}
             style={handleStyle('tl')}
+            hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}
           />
           <View
-            {...trResponderRef.current.panHandlers}
-            onStartShouldSetResponder={handleTouch}
+            {...trResponder.panHandlers}
             style={handleStyle('tr')}
+            hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}
           />
           <View
-            {...blResponderRef.current.panHandlers}
-            onStartShouldSetResponder={handleTouch}
+            {...blResponder.panHandlers}
             style={handleStyle('bl')}
+            hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}
           />
           <View
-            {...brResponderRef.current.panHandlers}
-            onStartShouldSetResponder={handleTouch}
+            {...brResponder.panHandlers}
             style={handleStyle('br')}
+            hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}
           />
         </>
       ) : null}

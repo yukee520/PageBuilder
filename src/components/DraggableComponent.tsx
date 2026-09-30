@@ -31,7 +31,8 @@ export interface DraggableComponentProps {
   children: React.ReactNode;
 }
 
-const HANDLE_SIZE = 26;
+const HANDLE_SIZE = 28;
+const DRAG_SENSITIVITY = 0.6;
 
 interface BoxSnapshot {
   x: number;
@@ -88,11 +89,11 @@ export default function DraggableComponent({
         onMoveShouldSetPanResponder: (
           _e: GestureResponderEvent,
           g: PanResponderGestureState,
-        ) => editableRef.current && (Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2),
+        ) => editableRef.current && (Math.abs(g.dx) > 1 || Math.abs(g.dy) > 1),
         onMoveShouldSetPanResponderCapture: (
           _e: GestureResponderEvent,
           g: PanResponderGestureState,
-        ) => editableRef.current && (Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2),
+        ) => editableRef.current && (Math.abs(g.dx) > 1 || Math.abs(g.dy) > 1),
         onPanResponderTerminationRequest: () => false,
         onShouldBlockNativeResponder: () => true,
         onPanResponderGrant: () => {
@@ -113,8 +114,8 @@ export default function DraggableComponent({
 
           const s = snapshotRef.current;
           const scale = layoutRef.current.scale;
-          const dvx = g.dx / scale;
-          const dvy = g.dy / scale;
+          const dvx = (g.dx * DRAG_SENSITIVITY) / scale;
+          const dvy = (g.dy * DRAG_SENSITIVITY) / scale;
 
           if (!corner) {
             const next = clampToCanvas(s.x + dvx, s.y + dvy, s.width, s.height);
@@ -202,6 +203,11 @@ export default function DraggableComponent({
     onRequestEditRef.current?.(componentIdRef.current);
   }, []);
 
+  const handleTap = useCallback((): void => {
+    if (!editableRef.current) return;
+    onSelectRef.current(componentIdRef.current);
+  }, []);
+
   return (
     <View
       style={{
@@ -236,6 +242,7 @@ export default function DraggableComponent({
         pointerEvents={editable ? 'auto' : 'box-none'}
       >
         <Pressable
+          onPress={editable ? handleTap : undefined}
           onLongPress={editable ? handleLongPress : undefined}
           delayLongPress={450}
           style={{ flex: 1 }}
@@ -263,22 +270,22 @@ export default function DraggableComponent({
           <View
             {...tlResponder.panHandlers}
             style={handleStyle('tl')}
-            hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}
+            hitSlop={{ top: 12, left: 12, bottom: 12, right: 12 }}
           />
           <View
             {...trResponder.panHandlers}
             style={handleStyle('tr')}
-            hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}
+            hitSlop={{ top: 12, left: 12, bottom: 12, right: 12 }}
           />
           <View
             {...blResponder.panHandlers}
             style={handleStyle('bl')}
-            hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}
+            hitSlop={{ top: 12, left: 12, bottom: 12, right: 12 }}
           />
           <View
             {...brResponder.panHandlers}
             style={handleStyle('br')}
-            hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}
+            hitSlop={{ top: 12, left: 12, bottom: 12, right: 12 }}
           />
         </>
       ) : null}

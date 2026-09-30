@@ -16,10 +16,11 @@ export interface RuntimeRendererProps {
   hiddenComponentIds: Record<string, boolean>;
   onComponentPress: (component: PageComponent) => void;
   onInputChange: (componentId: string, value: string) => void;
+  canvasBackgroundColor?: string;
 }
 
-const CANVAS_WIDTH = 360;
-const CANVAS_HEIGHT = 780;
+const CANVAS_ASPECT = 360 / 800;
+const CANVAS_REFERENCE_WIDTH = 360;
 
 interface CanvasLayout {
   scale: number;
@@ -30,11 +31,22 @@ interface CanvasLayout {
 }
 
 function computeLayout(screenW: number, screenH: number): CanvasLayout {
-  const scale = Math.min(screenW / CANVAS_WIDTH, screenH / CANVAS_HEIGHT);
-  const canvasWidth = CANVAS_WIDTH * scale;
-  const canvasHeight = CANVAS_HEIGHT * scale;
+  const screenAspect = screenW / screenH;
+  let canvasWidth: number;
+  let canvasHeight: number;
+
+  if (screenAspect > CANVAS_ASPECT) {
+    canvasHeight = screenH;
+    canvasWidth = canvasHeight * CANVAS_ASPECT;
+  } else {
+    canvasWidth = screenW;
+    canvasHeight = canvasWidth / CANVAS_ASPECT;
+  }
+
   const offsetX = (screenW - canvasWidth) / 2;
   const offsetY = (screenH - canvasHeight) / 2;
+  const scale = canvasWidth / CANVAS_REFERENCE_WIDTH;
+
   return { scale, offsetX, offsetY, canvasWidth, canvasHeight };
 }
 
@@ -73,7 +85,7 @@ function renderComponent(
           style={{
             flex: 1,
             justifyContent: 'center',
-            paddingHorizontal: 4 * scale,
+            paddingHorizontal: 2,
           }}
         >
           <Text
@@ -92,6 +104,7 @@ function renderComponent(
 
     case 'image': {
       const radius = component.rounded ? 12 * scale : 0;
+      const mode = component.backgroundMode ? 'cover' : 'contain';
       if (!component.uri) {
         return (
           <View
@@ -118,7 +131,7 @@ function renderComponent(
             height: '100%',
             borderRadius: radius,
           }}
-          resizeMode="cover"
+          resizeMode={mode}
         />
       );
     }
@@ -140,8 +153,8 @@ function renderComponent(
             style={{
               color: '#E2E8F0',
               fontSize: 11 * scale,
-              marginTop: 4 * scale,
-              paddingHorizontal: 8 * scale,
+              marginTop: 4,
+              paddingHorizontal: 8,
               textAlign: 'center',
             }}
             numberOfLines={2}
@@ -267,7 +280,7 @@ function renderComponent(
             <View
               key={child.id}
               style={{
-                flex: Math.max(child.width, 1),
+                flex: Math.max(child.width, 0.1),
                 opacity: child.visible ? 1 : 0.3,
               }}
             >
@@ -291,6 +304,7 @@ export default function RuntimeRenderer({
   hiddenComponentIds,
   onComponentPress,
   onInputChange,
+  canvasBackgroundColor,
 }: RuntimeRendererProps): React.ReactElement {
   const [size, setSize] = useState<{ width: number; height: number }>({
     width: 0,
@@ -316,50 +330,64 @@ export default function RuntimeRenderer({
   return (
     <View
       onLayout={handleLayout}
-      style={{ flex: 1, overflow: 'hidden' }}
+      style={{ flex: 1, overflow: 'visible' }}
     >
       {layout ? (
-        <View
-          style={{
-            position: 'absolute',
-            left: layout.offsetX,
-            top: layout.offsetY,
-            width: layout.canvasWidth,
-            height: layout.canvasHeight,
-            overflow: 'hidden',
-          }}
-        >
-          {sortedComponents.map(component => {
-            if (!component.visible) return null;
-            if (hiddenComponentIds[component.id]) return null;
+        <>
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: layout.offsetX,
+              top: layout.offsetY,
+              width: layout.canvasWidth,
+              height: layout.canvasHeight,
+              backgroundColor: canvasBackgroundColor ?? '#FFFFFF',
+            }}
+          />
 
-            const left = component.x * layout.scale;
-            const top = component.y * layout.scale;
-            const width = component.width * layout.scale;
-            const height = component.height * layout.scale;
+          <View
+            style={{
+              position: 'absolute',
+              left: layout.offsetX,
+              top: layout.offsetY,
+              width: layout.canvasWidth,
+              height: layout.canvasHeight,
+              overflow: 'visible',
+            }}
+          >
+            {sortedComponents.map(component => {
+              if (!component.visible) return null;
+              if (hiddenComponentIds[component.id]) return null;
 
-            return (
-              <View
-                key={component.id}
-                style={{
-                  position: 'absolute',
-                  left,
-                  top,
-                  width,
-                  height,
-                  zIndex: component.zIndex,
-                }}
-              >
-                {renderComponent(component, {
-                  scale: layout.scale,
-                  onComponentPress,
-                  onInputChange,
-                  variables,
-                })}
-              </View>
-            );
-          })}
-        </View>
+              const left = component.x * layout.canvasWidth;
+              const top = component.y * layout.canvasHeight;
+              const width = component.width * layout.canvasWidth;
+              const height = component.height * layout.canvasHeight;
+
+              return (
+                <View
+                  key={component.id}
+                  style={{
+                    position: 'absolute',
+                    left,
+                    top,
+                    width,
+                    height,
+                    zIndex: component.zIndex,
+                  }}
+                >
+                  {renderComponent(component, {
+                    scale: layout.scale,
+                    onComponentPress,
+                    onInputChange,
+                    variables,
+                  })}
+                </View>
+              );
+            })}
+          </View>
+        </>
       ) : null}
     </View>
   );

@@ -11,14 +11,11 @@ import {
 } from '@/utils/id';
 import { sanitizePackageName, sanitizeRepoName } from '@/utils/format';
 import {
-  CANVAS_HEIGHT,
-  CANVAS_WIDTH,
-  DEFAULT_COMPONENT_SIZE,
+  DEFAULT_COMPONENT_SIZE_FRAC,
+  DEFAULT_DROP_POSITION_FRAC,
 } from '@/utils/canvas';
 
-const DROP_X = 40;
-const DROP_Y_START = 40;
-const DROP_Y_STEP = 20;
+const DROP_STEP_FRAC = 0.02;
 
 export function createEmptyPage(title: string): Page {
   return {
@@ -54,28 +51,28 @@ function findDropPosition(
   width: number,
   height: number,
 ): { x: number; y: number } {
-  let y = DROP_Y_START;
+  let y = DEFAULT_DROP_POSITION_FRAC.y;
   let attempts = 0;
+  const x = DEFAULT_DROP_POSITION_FRAC.x;
+
   while (attempts < 30) {
     const overlapping = components.some(
       c =>
-        Math.abs(c.x - DROP_X) < 8 &&
-        Math.abs(c.y - y) < 8,
+        Math.abs(c.x - x) < 0.02 &&
+        Math.abs(c.y - y) < 0.02,
     );
     if (!overlapping) break;
-    y += DROP_Y_STEP;
-    if (y + height > CANVAS_HEIGHT - 20) {
-      y = DROP_Y_START;
+    y += DROP_STEP_FRAC;
+    if (y + height > 1) {
+      y = DEFAULT_DROP_POSITION_FRAC.y;
       break;
     }
     attempts += 1;
   }
 
-  const maxX = CANVAS_WIDTH - width;
-  const maxY = CANVAS_HEIGHT - height;
   return {
-    x: Math.max(0, Math.min(DROP_X, maxX)),
-    y: Math.max(0, Math.min(y, maxY)),
+    x: Math.max(0, Math.min(x, 1 - width)),
+    y: Math.max(0, Math.min(y, 1 - height)),
   };
 }
 
@@ -84,7 +81,10 @@ export function createComponent(
   existingSiblings: PageComponent[] = [],
 ): PageComponent {
   const id = generateComponentId();
-  const size = DEFAULT_COMPONENT_SIZE[type] ?? { width: 200, height: 40 };
+  const size = DEFAULT_COMPONENT_SIZE_FRAC[type] ?? {
+    width: 0.6,
+    height: 0.06,
+  };
   const { x, y } = findDropPosition(existingSiblings, size.width, size.height);
   const zIndex = nextZIndex(existingSiblings);
 
@@ -116,6 +116,7 @@ export function createComponent(
         type: 'image',
         uri: '',
         rounded: true,
+        backgroundMode: false,
       };
     case 'video':
       return {

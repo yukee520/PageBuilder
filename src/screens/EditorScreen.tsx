@@ -245,6 +245,55 @@ export default function EditorScreen(): React.ReactElement {
     });
   }, [activePage, selectedComponent, updateComponent]);
 
+  const handleFitWidth = useCallback((): void => {
+    if (!activePage || !selectedComponent) return;
+    updateComponent(activePage.id, selectedComponent.id, {
+      x: 0,
+      width: 1,
+    });
+    Toast.show({ type: 'success', text1: 'Stretched to full width' });
+  }, [activePage, selectedComponent, updateComponent]);
+
+  const handleFitCanvas = useCallback((): void => {
+    if (!activePage || !selectedComponent) return;
+    updateComponent(activePage.id, selectedComponent.id, {
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+    });
+    Toast.show({ type: 'success', text1: 'Set to full canvas' });
+  }, [activePage, selectedComponent, updateComponent]);
+
+  const handleSetAsBackground = useCallback((): void => {
+    if (!activePage || !selectedComponent) return;
+    if (selectedComponent.type !== 'image') {
+      Toast.show({
+        type: 'error',
+        text1: 'Only images can be set as background',
+      });
+      return;
+    }
+    updateComponent(activePage.id, selectedComponent.id, {
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      rounded: false,
+      backgroundMode: true,
+      zIndex: 0,
+    });
+    Toast.show({ type: 'success', text1: 'Image set as background' });
+  }, [activePage, selectedComponent, updateComponent]);
+
+  const handleClearBackgroundMode = useCallback((): void => {
+    if (!activePage || !selectedComponent) return;
+    updateComponent(activePage.id, selectedComponent.id, {
+      backgroundMode: false,
+    });
+    Toast.show({ type: 'success', text1: 'Background mode off' });
+  }, [activePage, selectedComponent, updateComponent]);
+
   const handleAddPage = useCallback((): void => {
     addPage();
     Toast.show({ type: 'success', text1: 'Page added' });
@@ -309,6 +358,12 @@ export default function EditorScreen(): React.ReactElement {
     );
   }
 
+  const isImageSelected =
+    selectedComponent !== null && selectedComponent.type === 'image';
+  const isBackgroundActive =
+    isImageSelected &&
+    (selectedComponent as { backgroundMode?: boolean }).backgroundMode === true;
+
   return (
     <SafeAreaView
       className="flex-1 bg-background dark:bg-dark-background"
@@ -353,17 +408,8 @@ export default function EditorScreen(): React.ReactElement {
         onManagePages={handleOpenProjectSettings}
       />
 
-      <View className="flex-1 bg-slate-200 dark:bg-slate-900">
-        <View
-          className="flex-1 bg-white dark:bg-dark-card m-2 rounded-2xl"
-          style={{
-            shadowColor: '#000',
-            shadowOpacity: 0.15,
-            shadowRadius: 8,
-            shadowOffset: { width: 0, height: 2 },
-            elevation: 4,
-          }}
-        >
+      <View className="flex-1 bg-slate-300 dark:bg-slate-950">
+        <View className="flex-1 m-2 rounded-2xl overflow-hidden">
           <PageViewRenderer
             page={activePage}
             editable={!previewMode}
@@ -387,6 +433,7 @@ export default function EditorScreen(): React.ReactElement {
               }
             }}
             inputValues={{}}
+            canvasBackgroundColor="#FFFFFF"
           />
         </View>
 
@@ -423,6 +470,48 @@ export default function EditorScreen(): React.ReactElement {
               <Ionicons name="close" size={16} color="#94A3B8" />
             </Pressable>
           </View>
+
+          {isImageSelected ? (
+            <View className="flex-row flex-wrap mb-2">
+              <ToolbarButton
+                icon="expand-outline"
+                label="Fit width"
+                onPress={handleFitWidth}
+              />
+              <ToolbarButton
+                icon="scan-outline"
+                label="Fit canvas"
+                onPress={handleFitCanvas}
+              />
+              {isBackgroundActive ? (
+                <ToolbarButton
+                  icon="close-circle-outline"
+                  label="Remove bg mode"
+                  onPress={handleClearBackgroundMode}
+                />
+              ) : (
+                <ToolbarButton
+                  icon="image-outline"
+                  label="Set as background"
+                  onPress={handleSetAsBackground}
+                />
+              )}
+            </View>
+          ) : (
+            <View className="flex-row flex-wrap mb-2">
+              <ToolbarButton
+                icon="expand-outline"
+                label="Fit width"
+                onPress={handleFitWidth}
+              />
+              <ToolbarButton
+                icon="scan-outline"
+                label="Fit canvas"
+                onPress={handleFitCanvas}
+              />
+            </View>
+          )}
+
           <View className="flex-row flex-wrap">
             <ToolbarButton
               icon="create-outline"
@@ -523,7 +612,7 @@ function ToolbarButton({
       accessibilityRole="button"
     >
       <Ionicons name={icon} size={14} color={color} />
-      <Text className="text-sm font-semibold ml-1" style={{ color }}>
+      <Text className="text-xs font-semibold ml-1" style={{ color }}>
         {label}
       </Text>
     </Pressable>

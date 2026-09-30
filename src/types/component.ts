@@ -15,11 +15,10 @@ export type SizePreset = 'small' | 'medium' | 'large' | 'full';
 export type HorizontalAlign = 'left' | 'center' | 'right';
 
 /**
- * Virtual canvas coordinate system.
- * All x, y, width, height values are in VIRTUAL units.
- * Virtual canvas is 360 × 780 (see src/utils/canvas.ts).
- * At render time, virtual units are multiplied by a scale factor
- * derived from the real screen size.
+ * Position and size are stored as FRACTIONS of the canvas (0 to 1).
+ * x=0 is left edge, x=1 is right edge, width=1 means full canvas width.
+ * Same for y / height relative to canvas height.
+ * This makes the design responsive: percentages scale with any screen.
  */
 export interface PositionedBox {
   x: number;
@@ -49,6 +48,7 @@ export interface ImageComponent extends ComponentBase {
   type: 'image';
   uri: string;
   rounded: boolean;
+  backgroundMode: boolean;
 }
 
 export interface VideoComponent extends ComponentBase {

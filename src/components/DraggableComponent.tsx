@@ -1,12 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  PanResponder,
-  Pressable,
-  Text,
-  View,
-  type GestureResponderEvent,
-  type PanResponderGestureState,
-} from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
 import type { PageComponent } from '@/types/component';
 import {
   CANVAS_HEIGHT,
@@ -28,25 +23,22 @@ export interface DraggableComponentProps {
     id: string,
     next: { x: number; y: number; width: number; height: number },
   ) => void;
+  onChangeEnd?: (
+    id: string,
+    next: { x: number; y: number; width: number; height: number },
+  ) => void;
   onRequestEdit?: (id: string) => void;
   children: React.ReactNode;
 }
 
 const HANDLE_SIZE = 28;
-const EDGE_OVERSHOOT = 12;
+const EDGE_OVERSHOOT = 20;
 
 interface BoxSnapshot {
   x: number;
   y: number;
   width: number;
   height: number;
-}
-
-interface DragAnchor {
-  componentXAtGrant: number;
-  componentYAtGrant: number;
-  fingerXAtGrant: number;
-  fingerYAtGrant: number;
 }
 
 function clampBox(
@@ -76,12 +68,27 @@ export default function DraggableComponent({
   editable,
   onSelect,
   onChange,
+  onChangeEnd,
   onRequestEdit,
   children,
 }: DraggableComponentProps): React.ReactElement {
   const [dbg, setDbg] = useState<string>('idle');
 
   const snapshotRef = useRef<BoxSnapshot>({
+    x: component.x,
+    y: component.y,
+    width: component.width,
+    height: component.height,
+  });
+
+  const dragBaseRef = useRef<BoxSnapshot>({
+    x: component.x,
+    y: component.y,
+    width: component.width,
+    height: component.height,
+  });
+
+  const resizeBaseRef = useRef<BoxSnapshot>({
     x: component.x,
     y: component.y,
     width: component.width,
@@ -97,11 +104,11 @@ export default function DraggableComponent({
     };
   }, [component.x, component.y, component.width, component.height]);
 
-  const componentIdRef = useRef<string>(component.id);
-  componentIdRef.current = component.id;
-
   const layoutRef = useRef<CanvasLayout>(layout);
   layoutRef.current = layout;
+
+  const componentIdRef = useRef<string>(component.id);
+  componentIdRef.current = component.id;
 
   const editableRef = useRef<boolean>(editable);
   editableRef.current = editable;
@@ -109,204 +116,168 @@ export default function DraggableComponent({
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
+  const onChangeEndRef = useRef(onChangeEnd);
+  onChangeEndRef.current = onChangeEnd;
+
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
 
   const onRequestEditRef = useRef(onRequestEdit);
   onRequestEditRef.current = onRequestEdit;
 
-  const grantTimeRef = useRef<number>(0);
-  const movedRef = useRef<boolean>(false);
+  const handleDragBegin = useCallback((): void => {
+    if (!editableRef.current) return;
+    onSelectRef.current(componentIdRef.current);
+    dragBaseRef.current = { ...snapshotRef.current };
+    setDbg('DRAG START');
+  }, []);
 
-  const dragAnchorRef = useRef<DragAnchor | null>(null);
-  const resizeAnchorRef = useRef<DragAnchor | null>(null);
+  const handleDragUpdate = useCallback(
+    (dxPx: number, dyPx: number): void => {
+      const scale = layoutRef.current.scale;
+      const base = dragBaseRef.current;
+      const next = clampBox(
+        base.x + dxPx / scale,
+        base.y + dyPx / scale,
+        base.width,
+        base.height,
+      );
+      setDbg(
+        `DRAG dx=${Math.round(dxPx)} dy=${Math.round(dyPx)} x=${Math.round(
+          next.x,
+        )} y=${Math.round(next.y)}`,
+      );
+      onChangeRef.current(componentIdRef.current, next);
+    },
+    [],
+  );
 
-  const makeDragResponder = useCallback(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => editableRef.current,
-        onStartShouldSetPanResponderCapture: () => false,
-        onMoveShouldSetPanResponder: (
-          _e: GestureResponderEvent,
-          g: PanResponderGestureState,
-        ) => editableRef.current && (Math.abs(g.dx) > 1 || Math.abs(g.dy) > 1),
-        onMoveShouldSetPanResponderCapture: (
-          _e: GestureResponderEvent,
-          g: PanResponderGestureState,
-        ) => editableRef.current && (Math.abs(g.dx) > 1 || Math.abs(g.dy) > 1),
-        onPanResponderTerminationRequest: () => false,
-        onShouldBlockNativeResponder: () => true,
-        onPanResponderGrant: (e: GestureResponderEvent) => {
-          const c = componentIdRef.current;
-          onSelectRef.current(c);
-          grantTimeRef.current = Date.now();
-          movedRef.current = false;
+  const handleDragEnd = useCallback((): void => {
+    const current = {
+      ...snapshotRef.current,
+    };
+    setDbg('DRAG END');
+    onChangeEndRef.current?.(componentIdRef.current, current);
+  }, []);
 
-          const s = snapshotRef.current;
-          dragAnchorRef.current = {
-            componentXAtGrant: s.x,
-            componentYAtGrant: s.y,
-            fingerXAtGrant: e.nativeEvent.pageX,
-            fingerYAtGrant: e.nativeEvent.pageY,
-          };
-          setDbg(`GRANT ${c.slice(-4)}`);
-        },
-        onPanResponderMove: (
-          e: GestureResponderEvent,
-          g: PanResponderGestureState,
-        ) => {
-          setDbg(`MOVE dx=${Math.round(g.dx)} dy=${Math.round(g.dy)}`);
-          if (Math.abs(g.dx) > 3 || Math.abs(g.dy) > 3) {
-            movedRef.current = true;
-          }
+  const handleResizeBegin = useCallback((): void => {
+    if (!editableRef.current) return;
+    onSelectRef.current(componentIdRef.current);
+    resizeBaseRef.current = { ...snapshotRef.current };
+    setDbg('RESIZE START');
+  }, []);
 
-          const anchor = dragAnchorRef.current;
-          if (!anchor) return;
+  const handleResizeUpdate = useCallback(
+    (corner: ResizeCorner, dxPx: number, dyPx: number): void => {
+      const scale = layoutRef.current.scale;
+      const base = resizeBaseRef.current;
+      const dvx = dxPx / scale;
+      const dvy = dyPx / scale;
 
-          const s = snapshotRef.current;
-          const scale = layoutRef.current.scale;
-          const fingerX = e.nativeEvent.pageX;
-          const fingerY = e.nativeEvent.pageY;
-          const dvx = (fingerX - anchor.fingerXAtGrant) / scale;
-          const dvy = (fingerY - anchor.fingerYAtGrant) / scale;
+      let nx = base.x;
+      let ny = base.y;
+      let nw = base.width;
+      let nh = base.height;
 
-          const next = clampBox(
-            anchor.componentXAtGrant + dvx,
-            anchor.componentYAtGrant + dvy,
-            s.width,
-            s.height,
+      if (corner === 'tl') {
+        nx = base.x + dvx;
+        ny = base.y + dvy;
+        nw = base.width - dvx;
+        nh = base.height - dvy;
+      } else if (corner === 'tr') {
+        ny = base.y + dvy;
+        nw = base.width + dvx;
+        nh = base.height - dvy;
+      } else if (corner === 'bl') {
+        nx = base.x + dvx;
+        nw = base.width - dvx;
+        nh = base.height + dvy;
+      } else {
+        nw = base.width + dvx;
+        nh = base.height + dvy;
+      }
+
+      if (nw < MIN_COMPONENT_WIDTH) {
+        if (corner === 'tl' || corner === 'bl') {
+          nx = base.x + (base.width - MIN_COMPONENT_WIDTH);
+        }
+        nw = MIN_COMPONENT_WIDTH;
+      }
+      if (nh < MIN_COMPONENT_HEIGHT) {
+        if (corner === 'tl' || corner === 'tr') {
+          ny = base.y + (base.height - MIN_COMPONENT_HEIGHT);
+        }
+        nh = MIN_COMPONENT_HEIGHT;
+      }
+
+      const next = {
+        x: nx,
+        y: ny,
+        width: nw,
+        height: nh,
+      };
+      setDbg(
+        `RESIZE dx=${Math.round(dxPx)} w=${Math.round(nw)} h=${Math.round(nh)}`,
+      );
+      onChangeRef.current(componentIdRef.current, next);
+    },
+    [],
+  );
+
+  const handleResizeEnd = useCallback((): void => {
+    const current = { ...snapshotRef.current };
+    setDbg('RESIZE END');
+    onChangeEndRef.current?.(componentIdRef.current, current);
+  }, []);
+
+  const makeDragGesture = useCallback(() => {
+    return Gesture.Pan()
+      .enabled(editable)
+      .minDistance(2)
+      .onBegin(() => {
+        runOnJS(handleDragBegin)();
+      })
+      .onUpdate(event => {
+        runOnJS(handleDragUpdate)(event.translationX, event.translationY);
+      })
+      .onEnd(() => {
+        runOnJS(handleDragEnd)();
+      })
+      .onFinalize(() => {
+        runOnJS(handleDragEnd)();
+      });
+  }, [editable, handleDragBegin, handleDragUpdate, handleDragEnd]);
+
+  const makeResizeGesture = useCallback(
+    (corner: ResizeCorner) => {
+      return Gesture.Pan()
+        .enabled(editable)
+        .minDistance(2)
+        .onBegin(() => {
+          runOnJS(handleResizeBegin)();
+        })
+        .onUpdate(event => {
+          runOnJS(handleResizeUpdate)(
+            corner,
+            event.translationX,
+            event.translationY,
           );
-          onChangeRef.current(componentIdRef.current, next);
-        },
-        onPanResponderRelease: () => {
-          const duration = Date.now() - grantTimeRef.current;
-          setDbg(`RELEASE dur=${duration} moved=${movedRef.current}`);
-          dragAnchorRef.current = null;
-          if (!movedRef.current && duration < 400) {
-            onSelectRef.current(componentIdRef.current);
-          }
-        },
-        onPanResponderTerminate: () => {
-          setDbg('TERMINATED');
-          movedRef.current = false;
-          dragAnchorRef.current = null;
-        },
-      }),
-    [],
+        })
+        .onEnd(() => {
+          runOnJS(handleResizeEnd)();
+        })
+        .onFinalize(() => {
+          runOnJS(handleResizeEnd)();
+        });
+    },
+    [editable, handleResizeBegin, handleResizeUpdate, handleResizeEnd],
   );
 
-  const makeResizeResponder = useCallback(
-    (corner: ResizeCorner) =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => editableRef.current,
-        onStartShouldSetPanResponderCapture: () => false,
-        onMoveShouldSetPanResponder: (
-          _e: GestureResponderEvent,
-          g: PanResponderGestureState,
-        ) => editableRef.current && (Math.abs(g.dx) > 1 || Math.abs(g.dy) > 1),
-        onMoveShouldSetPanResponderCapture: (
-          _e: GestureResponderEvent,
-          g: PanResponderGestureState,
-        ) => editableRef.current && (Math.abs(g.dx) > 1 || Math.abs(g.dy) > 1),
-        onPanResponderTerminationRequest: () => false,
-        onShouldBlockNativeResponder: () => true,
-        onPanResponderGrant: (e: GestureResponderEvent) => {
-          onSelectRef.current(componentIdRef.current);
-          grantTimeRef.current = Date.now();
-          movedRef.current = false;
-          resizeAnchorRef.current = {
-            componentXAtGrant: snapshotRef.current.x,
-            componentYAtGrant: snapshotRef.current.y,
-            fingerXAtGrant: e.nativeEvent.pageX,
-            fingerYAtGrant: e.nativeEvent.pageY,
-          };
-          setDbg(`RESIZE ${corner}`);
-        },
-        onPanResponderMove: (
-          e: GestureResponderEvent,
-          g: PanResponderGestureState,
-        ) => {
-          const anchor = resizeAnchorRef.current;
-          if (!anchor) return;
-
-          movedRef.current = true;
-
-          const s = snapshotRef.current;
-          const scale = layoutRef.current.scale;
-          const dvx = (e.nativeEvent.pageX - anchor.fingerXAtGrant) / scale;
-          const dvy = (e.nativeEvent.pageY - anchor.fingerYAtGrant) / scale;
-
-          let nx = anchor.componentXAtGrant;
-          let ny = anchor.componentYAtGrant;
-          let nw = s.width;
-          let nh = s.height;
-
-          if (corner === 'tl') {
-            nx = anchor.componentXAtGrant + dvx;
-            ny = anchor.componentYAtGrant + dvy;
-            nw = s.width - dvx;
-            nh = s.height - dvy;
-          } else if (corner === 'tr') {
-            ny = anchor.componentYAtGrant + dvy;
-            nw = s.width + dvx;
-            nh = s.height - dvy;
-          } else if (corner === 'bl') {
-            nx = anchor.componentXAtGrant + dvx;
-            nw = s.width - dvx;
-            nh = s.height + dvy;
-          } else {
-            nw = s.width + dvx;
-            nh = s.height + dvy;
-          }
-
-          if (nw < MIN_COMPONENT_WIDTH) {
-            if (corner === 'tl' || corner === 'bl') {
-              nx = anchor.componentXAtGrant + (s.width - MIN_COMPONENT_WIDTH);
-            }
-            nw = MIN_COMPONENT_WIDTH;
-          }
-          if (nh < MIN_COMPONENT_HEIGHT) {
-            if (corner === 'tl' || corner === 'tr') {
-              ny = anchor.componentYAtGrant + (s.height - MIN_COMPONENT_HEIGHT);
-            }
-            nh = MIN_COMPONENT_HEIGHT;
-          }
-
-          onChangeRef.current(componentIdRef.current, {
-            x: nx,
-            y: ny,
-            width: nw,
-            height: nh,
-          });
-        },
-        onPanResponderRelease: () => {
-          resizeAnchorRef.current = null;
-          setDbg('RESIZE END');
-        },
-        onPanResponderTerminate: () => {
-          resizeAnchorRef.current = null;
-        },
-      }),
-    [],
-  );
-
-  const dragResponder = useMemo(() => makeDragResponder(), [makeDragResponder]);
-  const tlResponder = useMemo(
-    () => makeResizeResponder('tl'),
-    [makeResizeResponder],
-  );
-  const trResponder = useMemo(
-    () => makeResizeResponder('tr'),
-    [makeResizeResponder],
-  );
-  const blResponder = useMemo(
-    () => makeResizeResponder('bl'),
-    [makeResizeResponder],
-  );
-  const brResponder = useMemo(
-    () => makeResizeResponder('br'),
-    [makeResizeResponder],
-  );
+  const dragGesture = makeDragGesture();
+  const tlGesture = makeResizeGesture('tl');
+  const trGesture = makeResizeGesture('tr');
+  const blGesture = makeResizeGesture('bl');
+  const brGesture = makeResizeGesture('br');
 
   const left = layout.offsetX + component.x * layout.scale;
   const top = layout.offsetY + component.y * layout.scale;
@@ -352,21 +323,22 @@ export default function DraggableComponent({
         <Text style={{ color: '#FFF', fontSize: 9 }}>{dbg}</Text>
       </View>
 
-      <View
-        {...(editable ? dragResponder.panHandlers : {})}
-        style={{ flex: 1 }}
-        pointerEvents={editable ? 'auto' : 'box-none'}
-      >
-        <Pressable
-          onPress={editable ? handleTap : undefined}
-          onLongPress={editable ? handleLongPress : undefined}
-          delayLongPress={450}
-          style={{ flex: 1 }}
-          pointerEvents={editable ? 'auto' : 'box-none'}
-        >
-          {children}
-        </Pressable>
-      </View>
+      {editable ? (
+        <GestureDetector gesture={dragGesture}>
+          <View style={{ flex: 1 }} collapsable={false}>
+            <Pressable
+              onPress={handleTap}
+              onLongPress={handleLongPress}
+              delayLongPress={450}
+              style={{ flex: 1 }}
+            >
+              {children}
+            </Pressable>
+          </View>
+        </GestureDetector>
+      ) : (
+        <View style={{ flex: 1 }}>{children}</View>
+      )}
 
       {editable && selected ? (
         <>
@@ -383,26 +355,34 @@ export default function DraggableComponent({
               borderRadius: 4,
             }}
           />
-          <View
-            {...tlResponder.panHandlers}
-            style={handleStyle('tl')}
-            hitSlop={{ top: 12, left: 12, bottom: 12, right: 12 }}
-          />
-          <View
-            {...trResponder.panHandlers}
-            style={handleStyle('tr')}
-            hitSlop={{ top: 12, left: 12, bottom: 12, right: 12 }}
-          />
-          <View
-            {...blResponder.panHandlers}
-            style={handleStyle('bl')}
-            hitSlop={{ top: 12, left: 12, bottom: 12, right: 12 }}
-          />
-          <View
-            {...brResponder.panHandlers}
-            style={handleStyle('br')}
-            hitSlop={{ top: 12, left: 12, bottom: 12, right: 12 }}
-          />
+          <GestureDetector gesture={tlGesture}>
+            <View
+              style={handleStyle('tl')}
+              hitSlop={{ top: 12, left: 12, bottom: 12, right: 12 }}
+              collapsable={false}
+            />
+          </GestureDetector>
+          <GestureDetector gesture={trGesture}>
+            <View
+              style={handleStyle('tr')}
+              hitSlop={{ top: 12, left: 12, bottom: 12, right: 12 }}
+              collapsable={false}
+            />
+          </GestureDetector>
+          <GestureDetector gesture={blGesture}>
+            <View
+              style={handleStyle('bl')}
+              hitSlop={{ top: 12, left: 12, bottom: 12, right: 12 }}
+              collapsable={false}
+            />
+          </GestureDetector>
+          <GestureDetector gesture={brGesture}>
+            <View
+              style={handleStyle('br')}
+              hitSlop={{ top: 12, left: 12, bottom: 12, right: 12 }}
+              collapsable={false}
+            />
+          </GestureDetector>
         </>
       ) : null}
     </View>

@@ -142,6 +142,14 @@ export default function EditorScreen(): React.ReactElement {
     }
   }, []);
 
+  const saveImmediately = useCallback((): void => {
+    const current = useProjectStore.getState().project;
+    if (current) {
+      void saveProjectFile(current);
+      markClean();
+    }
+  }, [markClean]);
+
   const handleBack = useCallback((): void => {
     saveNow();
     navigation.goBack();
@@ -206,12 +214,13 @@ export default function EditorScreen(): React.ReactElement {
           onPress: () => {
             removeComponent(activePage.id, selectedComponent.id);
             setSelectedId(null);
+            saveImmediately();
             Toast.show({ type: 'success', text1: 'Component removed' });
           },
         },
       ],
     );
-  }, [activePage, removeComponent, selectedComponent]);
+  }, [activePage, removeComponent, saveImmediately, selectedComponent]);
 
   const handleEditSelected = useCallback((): void => {
     if (!activePage || !selectedComponent) return;
@@ -225,7 +234,13 @@ export default function EditorScreen(): React.ReactElement {
   const handleToggleVisibleSelected = useCallback((): void => {
     if (!activePage || !selectedComponent) return;
     toggleComponentVisibility(activePage.id, selectedComponent.id);
-  }, [activePage, selectedComponent, toggleComponentVisibility]);
+    saveImmediately();
+  }, [
+    activePage,
+    saveImmediately,
+    selectedComponent,
+    toggleComponentVisibility,
+  ]);
 
   const handleBringForward = useCallback((): void => {
     if (!activePage || !selectedComponent) return;
@@ -234,7 +249,8 @@ export default function EditorScreen(): React.ReactElement {
     updateComponent(activePage.id, selectedComponent.id, {
       zIndex: maxZ + 1,
     });
-  }, [activePage, selectedComponent, updateComponent]);
+    saveImmediately();
+  }, [activePage, saveImmediately, selectedComponent, updateComponent]);
 
   const handleSendBackward = useCallback((): void => {
     if (!activePage || !selectedComponent) return;
@@ -243,7 +259,8 @@ export default function EditorScreen(): React.ReactElement {
     updateComponent(activePage.id, selectedComponent.id, {
       zIndex: Math.max(1, minZ - 1),
     });
-  }, [activePage, selectedComponent, updateComponent]);
+    saveImmediately();
+  }, [activePage, saveImmediately, selectedComponent, updateComponent]);
 
   const handleFitWidth = useCallback((): void => {
     if (!activePage || !selectedComponent) return;
@@ -251,8 +268,9 @@ export default function EditorScreen(): React.ReactElement {
       x: 0,
       width: 1,
     });
+    saveImmediately();
     Toast.show({ type: 'success', text1: 'Stretched to full width' });
-  }, [activePage, selectedComponent, updateComponent]);
+  }, [activePage, saveImmediately, selectedComponent, updateComponent]);
 
   const handleFitCanvas = useCallback((): void => {
     if (!activePage || !selectedComponent) return;
@@ -262,8 +280,9 @@ export default function EditorScreen(): React.ReactElement {
       width: 1,
       height: 1,
     });
+    saveImmediately();
     Toast.show({ type: 'success', text1: 'Set to full canvas' });
-  }, [activePage, selectedComponent, updateComponent]);
+  }, [activePage, saveImmediately, selectedComponent, updateComponent]);
 
   const handleSetAsBackground = useCallback((): void => {
     if (!activePage || !selectedComponent) return;
@@ -283,21 +302,24 @@ export default function EditorScreen(): React.ReactElement {
       backgroundMode: true,
       zIndex: 0,
     });
+    saveImmediately();
     Toast.show({ type: 'success', text1: 'Image set as background' });
-  }, [activePage, selectedComponent, updateComponent]);
+  }, [activePage, saveImmediately, selectedComponent, updateComponent]);
 
   const handleClearBackgroundMode = useCallback((): void => {
     if (!activePage || !selectedComponent) return;
     updateComponent(activePage.id, selectedComponent.id, {
       backgroundMode: false,
     });
+    saveImmediately();
     Toast.show({ type: 'success', text1: 'Background mode off' });
-  }, [activePage, selectedComponent, updateComponent]);
+  }, [activePage, saveImmediately, selectedComponent, updateComponent]);
 
   const handleAddPage = useCallback((): void => {
     addPage();
+    saveImmediately();
     Toast.show({ type: 'success', text1: 'Page added' });
-  }, [addPage]);
+  }, [addPage, saveImmediately]);
 
   const handleSelectPage = useCallback(
     (pageId: string): void => {
@@ -362,7 +384,8 @@ export default function EditorScreen(): React.ReactElement {
     selectedComponent !== null && selectedComponent.type === 'image';
   const isBackgroundActive =
     isImageSelected &&
-    (selectedComponent as { backgroundMode?: boolean }).backgroundMode === true;
+    (selectedComponent as { backgroundMode?: boolean } | null)
+      ?.backgroundMode === true;
 
   return (
     <SafeAreaView

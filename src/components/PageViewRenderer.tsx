@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState } from 'react';
 import { View, type LayoutChangeEvent } from 'react-native';
 import type { Page } from '@/types/project';
@@ -117,6 +118,7 @@ export default function PageViewRenderer({
                   editable={editable}
                   onSelect={id => onSelectComponent?.(id)}
                   onChange={(id, next) => onComponentChange?.(id, next)}
+                  onChangeEnd={(id, next) => onComponentChange?.(id, next)}
                   onRequestEdit={id => onRequestEdit?.(id)}
                 >
                   {content}

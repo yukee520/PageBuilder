@@ -46,12 +46,6 @@ function fontSizeFor(size: SizePreset): number {
   }
 }
 
-function alignToTextAlign(
-  align: 'left' | 'center' | 'right',
-): 'left' | 'center' | 'right' {
-  return align;
-}
-
 function renderText(
   c: TextComponent,
   colors: ReturnType<typeof useTheme>['colors'],
@@ -62,17 +56,18 @@ function renderText(
       style={{
         flex: 1,
         justifyContent: 'center',
-        paddingHorizontal: 4 * scale,
+        paddingHorizontal: 2,
       }}
     >
       <Text
         style={{
           fontSize: fontSizeFor(c.fontSize) * scale,
           lineHeight: fontSizeFor(c.fontSize) * scale * 1.35,
-          textAlign: alignToTextAlign(c.align),
+          textAlign: c.align,
           fontWeight: c.bold ? '700' : '400',
           color: c.color ?? colors.text,
         }}
+        numberOfLines={0}
       >
         {c.content || ' '}
       </Text>
@@ -86,6 +81,7 @@ function renderImage(
   scale: number,
 ): React.ReactElement {
   const radius = c.rounded ? 12 * scale : 0;
+  const mode = c.backgroundMode ? 'cover' : 'contain';
 
   if (!c.uri) {
     return (
@@ -98,18 +94,8 @@ function renderImage(
           borderRadius: radius,
         }}
       >
-        <Ionicons
-          name="image-outline"
-          size={28 * scale}
-          color={colors.muted}
-        />
-        <Text
-          style={{
-            color: colors.muted,
-            fontSize: 11 * scale,
-            marginTop: 4 * scale,
-          }}
-        >
+        <Ionicons name="image-outline" size={28 * scale} color={colors.muted} />
+        <Text style={{ color: colors.muted, fontSize: 11 * scale, marginTop: 4 }}>
           No image
         </Text>
       </View>
@@ -125,14 +111,13 @@ function renderImage(
         height: '100%',
         borderRadius: radius,
       }}
-      resizeMode="cover"
+      resizeMode={mode}
     />
   );
 }
 
 function renderVideo(
   c: VideoComponent,
-  colors: ReturnType<typeof useTheme>['colors'],
   scale: number,
 ): React.ReactElement {
   return (
@@ -145,22 +130,18 @@ function renderVideo(
         borderRadius: 12 * scale,
       }}
     >
-      <Ionicons
-        name="play-circle"
-        size={48 * scale}
-        color="#FFFFFF"
-      />
+      <Ionicons name="play-circle" size={48 * scale} color="#FFFFFF" />
       <Text
         style={{
           color: '#E2E8F0',
           fontSize: 11 * scale,
-          marginTop: 4 * scale,
-          paddingHorizontal: 8 * scale,
+          marginTop: 4,
+          paddingHorizontal: 8,
           textAlign: 'center',
         }}
         numberOfLines={2}
       >
-        {c.url ? c.url : 'No video URL set'}
+        {c.url || 'No video URL set'}
       </Text>
     </View>
   );
@@ -326,16 +307,12 @@ function renderRow(
         <View
           key={child.id}
           style={{
-            flex: Math.max(child.width, 1),
+            flex: Math.max(child.width, 0.1),
             opacity: child.visible ? 1 : 0.3,
           }}
         >
-          <View style={{ flex: 1, position: 'relative' }}>
-            <ChildRenderer
-              component={child}
-              scale={scale}
-              colors={colors}
-            />
+          <View style={{ flex: 1 }}>
+            <ChildRenderer component={child} scale={scale} colors={colors} />
           </View>
         </View>
       ))}
@@ -378,9 +355,7 @@ export default function ComponentRenderer({
 }: ComponentRendererProps): React.ReactElement | null {
   const { colors } = useTheme();
 
-  if (!component.visible) {
-    if (!editable) return null;
-  }
+  if (!component.visible && !editable) return null;
 
   const opacity = component.visible ? 1 : 0.35;
 
@@ -391,7 +366,7 @@ export default function ComponentRenderer({
       case 'image':
         return renderImage(component, colors, scale);
       case 'video':
-        return renderVideo(component, colors, scale);
+        return renderVideo(component, scale);
       case 'button':
         return renderButton(component, colors, scale, onPress);
       case 'spacer':

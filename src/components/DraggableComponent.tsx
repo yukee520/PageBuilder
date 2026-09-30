@@ -4,10 +4,9 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import type { PageComponent } from '@/types/component';
 import {
-  CANVAS_HEIGHT,
-  CANVAS_WIDTH,
-  MIN_COMPONENT_HEIGHT,
-  MIN_COMPONENT_WIDTH,
+  MIN_COMPONENT_HEIGHT_FRAC,
+  MIN_COMPONENT_WIDTH_FRAC,
+  clampFractionBox,
   type CanvasLayout,
 } from '@/utils/canvas';
 
@@ -31,34 +30,13 @@ export interface DraggableComponentProps {
   children: React.ReactNode;
 }
 
-const HANDLE_SIZE = 28;
-const EDGE_OVERSHOOT = 200;
+const HANDLE_SIZE = 26;
 
 interface BoxSnapshot {
   x: number;
   y: number;
   width: number;
   height: number;
-}
-
-function clampBox(
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-): { x: number; y: number; width: number; height: number } {
-  const w = Math.max(MIN_COMPONENT_WIDTH, Math.min(width, CANVAS_WIDTH));
-  const h = Math.max(MIN_COMPONENT_HEIGHT, Math.min(height, CANVAS_HEIGHT));
-  const minX = -EDGE_OVERSHOOT;
-  const minY = -EDGE_OVERSHOOT;
-  const maxX = CANVAS_WIDTH - w + EDGE_OVERSHOOT;
-  const maxY = CANVAS_HEIGHT - h + EDGE_OVERSHOOT;
-  return {
-    x: Math.max(minX, Math.min(x, maxX)),
-    y: Math.max(minY, Math.min(y, maxY)),
-    width: w,
-    height: h,
-  };
 }
 
 export default function DraggableComponent({
@@ -74,41 +52,11 @@ export default function DraggableComponent({
 }: DraggableComponentProps): React.ReactElement {
   const [dbg, setDbg] = useState<string>('idle');
 
-  const snapshotRef = useRef<BoxSnapshot>({
-    x: component.x,
-    y: component.y,
-    width: component.width,
-    height: component.height,
-  });
-
-  const dragBaseRef = useRef<BoxSnapshot>({
-    x: component.x,
-    y: component.y,
-    width: component.width,
-    height: component.height,
-  });
-
-  const resizeBaseRef = useRef<BoxSnapshot>({
-    x: component.x,
-    y: component.y,
-    width: component.width,
-    height: component.height,
-  });
-
-  useEffect(() => {
-    snapshotRef.current = {
-      x: component.x,
-      y: component.y,
-      width: component.width,
-      height: component.height,
-    };
-  }, [component.x, component.y, component.width, component.height]);
+  const componentRef = useRef<PageComponent>(component);
+  componentRef.current = component;
 
   const layoutRef = useRef<CanvasLayout>(layout);
   layoutRef.current = layout;
-
-  const componentIdRef = useRef<string>(component.id);
-  componentIdRef.current = component.id;
 
   const editableRef = useRef<boolean>(editable);
   editableRef.current = editable;
@@ -125,54 +73,89 @@ export default function DraggableComponent({
   const onRequestEditRef = useRef(onRequestEdit);
   onRequestEditRef.current = onRequestEdit;
 
+  const dragBaseRef = useRef<BoxSnapshot>({
+    x: component.x,
+    y: component.y,
+    width: component.width,
+    height: component.height,
+  });
+
+  const resizeBaseRef = useRef<BoxSnapshot>({
+    x: component.x,
+    y: component.y,
+    width: component.width,
+    height: component.height,
+  });
+
+  const [live, setLive] = useState<BoxSnapshot>({
+    x: component.x,
+    y: component.y,
+    width: component.width,
+    height: component.height,
+  });
+
+  useEffect(() => {
+    setLive({
+      x: component.x,
+      y: component.y,
+      width: component.width,
+      height: component.height,
+    });
+  }, [component.x, component.y, component.width, component.height]);
+
   const handleDragBegin = useCallback((): void => {
     if (!editableRef.current) return;
-    onSelectRef.current(componentIdRef.current);
-    dragBaseRef.current = { ...snapshotRef.current };
+    onSelectRef.current(componentRef.current.id);
+    dragBaseRef.current = {
+      x: componentRef.current.x,
+      y: componentRef.current.y,
+      width: componentRef.current.width,
+      height: componentRef.current.height,
+    };
     setDbg('DRAG START');
   }, []);
 
-  const handleDragUpdate = useCallback(
-    (dxPx: number, dyPx: number): void => {
-      const scale = layoutRef.current.scale;
-      const base = dragBaseRef.current;
-      const next = clampBox(
-        base.x + dxPx / scale,
-        base.y + dyPx / scale,
-        base.width,
-        base.height,
-      );
-      setDbg(
-        `DRAG dx=${Math.round(dxPx)} dy=${Math.round(dyPx)} x=${Math.round(
-          next.x,
-        )} y=${Math.round(next.y)}`,
-      );
-      onChangeRef.current(componentIdRef.current, next);
-    },
-    [],
-  );
+  const handleDragUpdate = useCallback((dxPx: number, dyPx: number): void => {
+    const l = layoutRef.current;
+    const base = dragBaseRef.current;
+    const dxFrac = dxPx / l.canvasWidth;
+    const dyFrac = dyPx / l.canvasHeight;
+
+    const next = clampFractionBox(
+      base.x + dxFrac,
+      base.y + dyFrac,
+      base.width,
+      base.height,
+    );
+    setLive(next);
+    setDbg(`DRAG x=${(next.x * 100).toFixed(0)}%`);
+    onChangeRef.current(componentRef.current.id, next);
+  }, []);
 
   const handleDragEnd = useCallback((): void => {
-    const current = {
-      ...snapshotRef.current,
-    };
+    const current = { ...dragBaseRef.current };
     setDbg('DRAG END');
-    onChangeEndRef.current?.(componentIdRef.current, current);
+    onChangeEndRef.current?.(componentRef.current.id, current);
   }, []);
 
   const handleResizeBegin = useCallback((): void => {
     if (!editableRef.current) return;
-    onSelectRef.current(componentIdRef.current);
-    resizeBaseRef.current = { ...snapshotRef.current };
+    onSelectRef.current(componentRef.current.id);
+    resizeBaseRef.current = {
+      x: componentRef.current.x,
+      y: componentRef.current.y,
+      width: componentRef.current.width,
+      height: componentRef.current.height,
+    };
     setDbg('RESIZE START');
   }, []);
 
   const handleResizeUpdate = useCallback(
     (corner: ResizeCorner, dxPx: number, dyPx: number): void => {
-      const scale = layoutRef.current.scale;
+      const l = layoutRef.current;
       const base = resizeBaseRef.current;
-      const dvx = dxPx / scale;
-      const dvy = dyPx / scale;
+      const dxFrac = dxPx / l.canvasWidth;
+      const dyFrac = dyPx / l.canvasHeight;
 
       let nx = base.x;
       let ny = base.y;
@@ -180,54 +163,48 @@ export default function DraggableComponent({
       let nh = base.height;
 
       if (corner === 'tl') {
-        nx = base.x + dvx;
-        ny = base.y + dvy;
-        nw = base.width - dvx;
-        nh = base.height - dvy;
+        nx = base.x + dxFrac;
+        ny = base.y + dyFrac;
+        nw = base.width - dxFrac;
+        nh = base.height - dyFrac;
       } else if (corner === 'tr') {
-        ny = base.y + dvy;
-        nw = base.width + dvx;
-        nh = base.height - dvy;
+        ny = base.y + dyFrac;
+        nw = base.width + dxFrac;
+        nh = base.height - dyFrac;
       } else if (corner === 'bl') {
-        nx = base.x + dvx;
-        nw = base.width - dvx;
-        nh = base.height + dvy;
+        nx = base.x + dxFrac;
+        nw = base.width - dxFrac;
+        nh = base.height + dyFrac;
       } else {
-        nw = base.width + dvx;
-        nh = base.height + dvy;
+        nw = base.width + dxFrac;
+        nh = base.height + dyFrac;
       }
 
-      if (nw < MIN_COMPONENT_WIDTH) {
+      if (nw < MIN_COMPONENT_WIDTH_FRAC) {
         if (corner === 'tl' || corner === 'bl') {
-          nx = base.x + (base.width - MIN_COMPONENT_WIDTH);
+          nx = base.x + (base.width - MIN_COMPONENT_WIDTH_FRAC);
         }
-        nw = MIN_COMPONENT_WIDTH;
+        nw = MIN_COMPONENT_WIDTH_FRAC;
       }
-      if (nh < MIN_COMPONENT_HEIGHT) {
+      if (nh < MIN_COMPONENT_HEIGHT_FRAC) {
         if (corner === 'tl' || corner === 'tr') {
-          ny = base.y + (base.height - MIN_COMPONENT_HEIGHT);
+          ny = base.y + (base.height - MIN_COMPONENT_HEIGHT_FRAC);
         }
-        nh = MIN_COMPONENT_HEIGHT;
+        nh = MIN_COMPONENT_HEIGHT_FRAC;
       }
 
-      const next = {
-        x: nx,
-        y: ny,
-        width: nw,
-        height: nh,
-      };
-      setDbg(
-        `RESIZE dx=${Math.round(dxPx)} w=${Math.round(nw)} h=${Math.round(nh)}`,
-      );
-      onChangeRef.current(componentIdRef.current, next);
+      const next = { x: nx, y: ny, width: nw, height: nh };
+      setLive(next);
+      setDbg(`RESIZE w=${(nw * 100).toFixed(0)}% h=${(nh * 100).toFixed(0)}%`);
+      onChangeRef.current(componentRef.current.id, next);
     },
     [],
   );
 
   const handleResizeEnd = useCallback((): void => {
-    const current = { ...snapshotRef.current };
+    const current = { ...resizeBaseRef.current };
     setDbg('RESIZE END');
-    onChangeEndRef.current?.(componentIdRef.current, current);
+    onChangeEndRef.current?.(componentRef.current.id, current);
   }, []);
 
   const makeDragGesture = useCallback(() => {
@@ -241,9 +218,6 @@ export default function DraggableComponent({
         runOnJS(handleDragUpdate)(event.translationX, event.translationY);
       })
       .onEnd(() => {
-        runOnJS(handleDragEnd)();
-      })
-      .onFinalize(() => {
         runOnJS(handleDragEnd)();
       });
   }, [editable, handleDragBegin, handleDragUpdate, handleDragEnd]);
@@ -265,9 +239,6 @@ export default function DraggableComponent({
         })
         .onEnd(() => {
           runOnJS(handleResizeEnd)();
-        })
-        .onFinalize(() => {
-          runOnJS(handleResizeEnd)();
         });
     },
     [editable, handleResizeBegin, handleResizeUpdate, handleResizeEnd],
@@ -279,20 +250,20 @@ export default function DraggableComponent({
   const blGesture = makeResizeGesture('bl');
   const brGesture = makeResizeGesture('br');
 
-  const left = layout.offsetX + component.x * layout.scale;
-  const top = layout.offsetY + component.y * layout.scale;
-  const width = component.width * layout.scale;
-  const height = component.height * layout.scale;
+  const left = layout.offsetX + live.x * layout.canvasWidth;
+  const top = layout.offsetY + live.y * layout.canvasHeight;
+  const width = Math.max(live.width * layout.canvasWidth, 8);
+  const height = Math.max(live.height * layout.canvasHeight, 8);
 
   const handleLongPress = useCallback((): void => {
     if (!editableRef.current) return;
-    onSelectRef.current(componentIdRef.current);
-    onRequestEditRef.current?.(componentIdRef.current);
+    onSelectRef.current(componentRef.current.id);
+    onRequestEditRef.current?.(componentRef.current.id);
   }, []);
 
   const handleTap = useCallback((): void => {
     if (!editableRef.current) return;
-    onSelectRef.current(componentIdRef.current);
+    onSelectRef.current(componentRef.current.id);
   }, []);
 
   return (

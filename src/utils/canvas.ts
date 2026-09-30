@@ -1,8 +1,18 @@
-export const CANVAS_WIDTH = 360;
-export const CANVAS_HEIGHT = 780;
+/**
+ * Canvas is a fixed-aspect virtual screen. All positions/sizes are
+ * stored as fractions (0..1) of the canvas. At render time, we scale the
+ * canvas to fit the real screen and letterbox the excess with a
+ * background color.
+ *
+ * Aspect ratio chosen: 360:800 (matches common Android phones).
+ */
 
-export const MIN_COMPONENT_WIDTH = 40;
-export const MIN_COMPONENT_HEIGHT = 24;
+export const CANVAS_ASPECT = 360 / 800;
+export const CANVAS_REFERENCE_WIDTH = 360;
+export const CANVAS_REFERENCE_HEIGHT = 800;
+
+export const MIN_COMPONENT_WIDTH_FRAC = 0.05;
+export const MIN_COMPONENT_HEIGHT_FRAC = 0.02;
 
 export interface CanvasLayout {
   screenWidth: number;
@@ -18,14 +28,22 @@ export function computeCanvasLayout(
   screenWidth: number,
   screenHeight: number,
 ): CanvasLayout {
-  const scale = Math.min(
-    screenWidth / CANVAS_WIDTH,
-    screenHeight / CANVAS_HEIGHT,
-  );
-  const canvasWidth = CANVAS_WIDTH * scale;
-  const canvasHeight = CANVAS_HEIGHT * scale;
+  const screenAspect = screenWidth / screenHeight;
+  let canvasWidth: number;
+  let canvasHeight: number;
+
+  if (screenAspect > CANVAS_ASPECT) {
+    canvasHeight = screenHeight;
+    canvasWidth = canvasHeight * CANVAS_ASPECT;
+  } else {
+    canvasWidth = screenWidth;
+    canvasHeight = canvasWidth / CANVAS_ASPECT;
+  }
+
   const offsetX = (screenWidth - canvasWidth) / 2;
   const offsetY = (screenHeight - canvasHeight) / 2;
+  const scale = canvasWidth / CANVAS_REFERENCE_WIDTH;
+
   return {
     screenWidth,
     screenHeight,
@@ -37,55 +55,59 @@ export function computeCanvasLayout(
   };
 }
 
-export function virtualToReal(
+export function fractionToPx(
   layout: CanvasLayout,
-  vx: number,
-  vy: number,
-  vw: number,
-  vh: number,
+  xFrac: number,
+  yFrac: number,
+  wFrac: number,
+  hFrac: number,
 ): { left: number; top: number; width: number; height: number } {
   return {
-    left: layout.offsetX + vx * layout.scale,
-    top: layout.offsetY + vy * layout.scale,
-    width: vw * layout.scale,
-    height: vh * layout.scale,
+    left: layout.offsetX + xFrac * layout.canvasWidth,
+    top: layout.offsetY + yFrac * layout.canvasHeight,
+    width: wFrac * layout.canvasWidth,
+    height: hFrac * layout.canvasHeight,
   };
 }
 
-export function realDeltaToVirtual(
-  layout: CanvasLayout,
-  dx: number,
-  dy: number,
-): { dvx: number; dvy: number } {
-  return {
-    dvx: dx / layout.scale,
-    dvy: dy / layout.scale,
-  };
-}
-
-export function clampToCanvas(
-  vx: number,
-  vy: number,
-  vw: number,
-  vh: number,
+export function clampFractionBox(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
 ): { x: number; y: number; width: number; height: number } {
-  const width = Math.max(MIN_COMPONENT_WIDTH, Math.min(vw, CANVAS_WIDTH));
-  const height = Math.max(MIN_COMPONENT_HEIGHT, Math.min(vh, CANVAS_HEIGHT));
-  const x = Math.max(0, Math.min(vx, CANVAS_WIDTH - width));
-  const y = Math.max(0, Math.min(vy, CANVAS_HEIGHT - height));
-  return { x, y, width, height };
+  const w = Math.max(
+    MIN_COMPONENT_WIDTH_FRAC,
+    Math.min(width, 1),
+  );
+  const h = Math.max(
+    MIN_COMPONENT_HEIGHT_FRAC,
+    Math.min(height, 1),
+  );
+  const minX = -0.5;
+  const minY = -0.5;
+  const maxX = 1 - w + 0.5;
+  const maxY = 1 - h + 0.5;
+  return {
+    x: Math.max(minX, Math.min(x, maxX)),
+    y: Math.max(minY, Math.min(y, maxY)),
+    width: w,
+    height: h,
+  };
 }
 
-export const DEFAULT_COMPONENT_SIZE: Record<
+export const DEFAULT_COMPONENT_SIZE_FRAC: Record<
   string,
   { width: number; height: number }
 > = {
-  text: { width: 200, height: 40 },
-  image: { width: 240, height: 160 },
-  video: { width: 260, height: 150 },
-  button: { width: 140, height: 44 },
-  input: { width: 240, height: 44 },
-  spacer: { width: 200, height: 24 },
-  divider: { width: 260, height: 4 },
-  row: { width: 300, height: 80 },
+  text: { width: 0.65, height: 0.06 },
+  image: { width: 0.9, height: 0.25 },
+  video: { width: 0.9, height: 0.24 },
+  button: { width: 0.4, height: 0.06 },
+  input: { width: 0.8, height: 0.06 },
+  spacer: { width: 0.6, height: 0.03 },
+  divider: { width: 0.8, height: 0.005 },
+  row: { width: 0.9, height: 0.12 },
 };
+
+export const DEFAULT_DROP_POSITION_FRAC = { x: 0.05, y: 0.05 };

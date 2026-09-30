@@ -1,7 +1,8 @@
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   PanResponder,
   Pressable,
+  Text,
   View,
   type GestureResponderEvent,
   type PanResponderGestureState,
@@ -49,6 +50,8 @@ export default function DraggableComponent({
   onRequestEdit,
   children,
 }: DraggableComponentProps): React.ReactElement {
+  const [dbg, setDbg] = useState<string>('idle');
+
   const snapshotRef = useRef<BoxSnapshot>({
     x: component.x,
     y: component.y,
@@ -94,19 +97,16 @@ export default function DraggableComponent({
         onShouldBlockNativeResponder: () => true,
         onPanResponderGrant: () => {
           const c = componentIdRef.current;
-          const comp = {
-            x: snapshotRef.current.x,
-            y: snapshotRef.current.y,
-          };
-          void comp;
           onSelectRef.current(c);
           grantTimeRef.current = Date.now();
           movedRef.current = false;
+          setDbg(`GRANT ${c.slice(-4)}`);
         },
         onPanResponderMove: (
           _e: GestureResponderEvent,
           g: PanResponderGestureState,
         ) => {
+          setDbg(`MOVE dx=${Math.round(g.dx)} dy=${Math.round(g.dy)}`);
           if (Math.abs(g.dx) > 3 || Math.abs(g.dy) > 3) {
             movedRef.current = true;
           }
@@ -163,11 +163,13 @@ export default function DraggableComponent({
         },
         onPanResponderRelease: () => {
           const duration = Date.now() - grantTimeRef.current;
+          setDbg(`RELEASE dur=${duration} moved=${movedRef.current}`);
           if (!movedRef.current && duration < 400) {
             onSelectRef.current(componentIdRef.current);
           }
         },
         onPanResponderTerminate: () => {
+          setDbg('TERMINATED');
           movedRef.current = false;
         },
       }),
@@ -212,6 +214,22 @@ export default function DraggableComponent({
       }}
       pointerEvents={editable ? 'box-none' : 'box-none'}
     >
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          top: -22,
+          left: 0,
+          backgroundColor: 'rgba(0,0,0,0.75)',
+          paddingHorizontal: 4,
+          paddingVertical: 1,
+          borderRadius: 3,
+          zIndex: 9999,
+        }}
+      >
+        <Text style={{ color: '#FFF', fontSize: 9 }}>{dbg}</Text>
+      </View>
+
       <View
         {...(editable ? dragResponder.panHandlers : {})}
         style={{ flex: 1 }}

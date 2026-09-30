@@ -58,7 +58,7 @@ export default function PageViewRenderer({
   return (
     <View
       onLayout={handleLayout}
-      style={{ flex: 1, overflow: 'hidden' }}
+      style={{ flex: 1, overflow: 'visible' }}
     >
       {layout ? (
         <View
@@ -68,7 +68,7 @@ export default function PageViewRenderer({
             top: layout.offsetY,
             width: layout.canvasWidth,
             height: layout.canvasHeight,
-            overflow: 'hidden',
+            overflow: 'visible',
           }}
         >
           <View

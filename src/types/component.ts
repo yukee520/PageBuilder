@@ -8,7 +8,8 @@ export type ComponentType =
   | 'spacer'
   | 'divider'
   | 'row'
-  | 'input';
+  | 'input'
+  | 'music';
 
 export type SizePreset = 'small' | 'medium' | 'large' | 'full';
 
@@ -26,6 +27,13 @@ export interface PositionedBox {
   width: number;
   height: number;
   zIndex: number;
+}
+
+export interface MusicTrack {
+  id: string;
+  title: string;
+  artist: string;
+  url: string;
 }
 
 export interface ComponentBase extends PositionedBox {
@@ -84,6 +92,13 @@ export interface InputComponent extends ComponentBase {
   variableKey: string;
 }
 
+export interface MusicComponent extends ComponentBase {
+  type: 'music';
+  tracks: MusicTrack[];
+  showArtist: boolean;
+  autoplay: boolean;
+}
+
 export type PageComponent =
   | TextComponent
   | ImageComponent
@@ -92,7 +107,8 @@ export type PageComponent =
   | SpacerComponent
   | DividerComponent
   | RowComponent
-  | InputComponent;
+  | InputComponent
+  | MusicComponent;
 
 export const COMPONENT_TYPE_LABELS: Record<ComponentType, string> = {
   text: 'Text',
@@ -103,6 +119,7 @@ export const COMPONENT_TYPE_LABELS: Record<ComponentType, string> = {
   divider: 'Divider',
   row: 'Row',
   input: 'Input',
+  music: 'Music',
 };
 
 export const COMPONENT_TYPE_ICONS: Record<ComponentType, string> = {
@@ -114,6 +131,7 @@ export const COMPONENT_TYPE_ICONS: Record<ComponentType, string> = {
   divider: 'remove-outline',
   row: 'albums-outline',
   input: 'create-outline',
+  music: 'musical-notes-outline',
 };
 
 export const SIZE_PRESET_LABELS: Record<SizePreset, string> = {
@@ -153,4 +171,8 @@ export function isRowComponent(c: PageComponent): c is RowComponent {
 
 export function isInputComponent(c: PageComponent): c is InputComponent {
   return c.type === 'input';
+}
+
+export function isMusicComponent(c: PageComponent): c is MusicComponent {
+  return c.type === 'music';
 }

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
@@ -87,6 +87,8 @@ export default function DraggableComponent({
     height: component.height,
   });
 
+  const isGesturingRef = useRef<boolean>(false);
+
   const [live, setLive] = useState<BoxSnapshot>({
     x: component.x,
     y: component.y,
@@ -95,11 +97,23 @@ export default function DraggableComponent({
   });
 
   useEffect(() => {
-    setLive({
-      x: component.x,
-      y: component.y,
-      width: component.width,
-      height: component.height,
+    if (isGesturingRef.current) return;
+    setLive(prev => {
+      const next = {
+        x: component.x,
+        y: component.y,
+        width: component.width,
+        height: component.height,
+      };
+      if (
+        prev.x === next.x &&
+        prev.y === next.y &&
+        prev.width === next.width &&
+        prev.height === next.height
+      ) {
+        return prev;
+      }
+      return next;
     });
   }, [component.x, component.y, component.width, component.height]);
 
@@ -112,6 +126,7 @@ export default function DraggableComponent({
       width: componentRef.current.width,
       height: componentRef.current.height,
     };
+    isGesturingRef.current = true;
     setDbg('DRAG START');
   }, []);
 
@@ -133,6 +148,7 @@ export default function DraggableComponent({
   }, []);
 
   const handleDragEnd = useCallback((): void => {
+    isGesturingRef.current = false;
     const current = { ...dragBaseRef.current };
     setDbg('DRAG END');
     onChangeEndRef.current?.(componentRef.current.id, current);
@@ -147,6 +163,7 @@ export default function DraggableComponent({
       width: componentRef.current.width,
       height: componentRef.current.height,
     };
+    isGesturingRef.current = true;
     setDbg('RESIZE START');
   }, []);
 
@@ -202,53 +219,122 @@ export default function DraggableComponent({
   );
 
   const handleResizeEnd = useCallback((): void => {
+    isGesturingRef.current = false;
     const current = { ...resizeBaseRef.current };
     setDbg('RESIZE END');
     onChangeEndRef.current?.(componentRef.current.id, current);
   }, []);
 
-  const makeDragGesture = useCallback(() => {
-    return Gesture.Pan()
-      .enabled(editable)
-      .minDistance(2)
-      .onBegin(() => {
-        runOnJS(handleDragBegin)();
-      })
-      .onUpdate(event => {
-        runOnJS(handleDragUpdate)(event.translationX, event.translationY);
-      })
-      .onEnd(() => {
-        runOnJS(handleDragEnd)();
-      });
-  }, [editable, handleDragBegin, handleDragUpdate, handleDragEnd]);
-
-  const makeResizeGesture = useCallback(
-    (corner: ResizeCorner) => {
-      return Gesture.Pan()
-        .enabled(editable)
+  const dragGesture = useMemo(
+    () =>
+      Gesture.Pan()
         .minDistance(2)
         .onBegin(() => {
+          if (!editableRef.current) return;
+          runOnJS(handleDragBegin)();
+        })
+        .onUpdate(event => {
+          if (!editableRef.current) return;
+          runOnJS(handleDragUpdate)(event.translationX, event.translationY);
+        })
+        .onEnd(() => {
+          if (!editableRef.current) return;
+          runOnJS(handleDragEnd)();
+        }),
+    [handleDragBegin, handleDragUpdate, handleDragEnd],
+  );
+
+  const tlGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(2)
+        .onBegin(() => {
+          if (!editableRef.current) return;
           runOnJS(handleResizeBegin)();
         })
         .onUpdate(event => {
+          if (!editableRef.current) return;
           runOnJS(handleResizeUpdate)(
-            corner,
+            'tl',
             event.translationX,
             event.translationY,
           );
         })
         .onEnd(() => {
+          if (!editableRef.current) return;
           runOnJS(handleResizeEnd)();
-        });
-    },
-    [editable, handleResizeBegin, handleResizeUpdate, handleResizeEnd],
+        }),
+    [handleResizeBegin, handleResizeUpdate, handleResizeEnd],
   );
 
-  const dragGesture = makeDragGesture();
-  const tlGesture = makeResizeGesture('tl');
-  const trGesture = makeResizeGesture('tr');
-  const blGesture = makeResizeGesture('bl');
-  const brGesture = makeResizeGesture('br');
+  const trGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(2)
+        .onBegin(() => {
+          if (!editableRef.current) return;
+          runOnJS(handleResizeBegin)();
+        })
+        .onUpdate(event => {
+          if (!editableRef.current) return;
+          runOnJS(handleResizeUpdate)(
+            'tr',
+            event.translationX,
+            event.translationY,
+          );
+        })
+        .onEnd(() => {
+          if (!editableRef.current) return;
+          runOnJS(handleResizeEnd)();
+        }),
+    [handleResizeBegin, handleResizeUpdate, handleResizeEnd],
+  );
+
+  const blGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(2)
+        .onBegin(() => {
+          if (!editableRef.current) return;
+          runOnJS(handleResizeBegin)();
+        })
+        .onUpdate(event => {
+          if (!editableRef.current) return;
+          runOnJS(handleResizeUpdate)(
+            'bl',
+            event.translationX,
+            event.translationY,
+          );
+        })
+        .onEnd(() => {
+          if (!editableRef.current) return;
+          runOnJS(handleResizeEnd)();
+        }),
+    [handleResizeBegin, handleResizeUpdate, handleResizeEnd],
+  );
+
+  const brGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(2)
+        .onBegin(() => {
+          if (!editableRef.current) return;
+          runOnJS(handleResizeBegin)();
+        })
+        .onUpdate(event => {
+          if (!editableRef.current) return;
+          runOnJS(handleResizeUpdate)(
+            'br',
+            event.translationX,
+            event.translationY,
+          );
+        })
+        .onEnd(() => {
+          if (!editableRef.current) return;
+          runOnJS(handleResizeEnd)();
+        }),
+    [handleResizeBegin, handleResizeUpdate, handleResizeEnd],
+  );
 
   const left = live.x * layout.canvasWidth;
   const top = live.y * layout.canvasHeight;

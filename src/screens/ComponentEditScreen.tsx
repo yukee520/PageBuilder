@@ -50,7 +50,24 @@ const ACTION_TYPES: ActionType[] = [
   'toggleVisibility',
   'setVariable',
   'goBack',
+  'nextOnboarding',
+  'completeOnboarding',
 ];
+
+const TEXT_COLOR_PRESETS: { label: string; value: string | null }[] = [
+  { label: 'Default', value: null },
+  { label: 'Dark', value: '#0F172A' },
+  { label: 'Gray', value: '#64748B' },
+  { label: 'White', value: '#FFFFFF' },
+  { label: 'Primary', value: '#2563EB' },
+  { label: 'Danger', value: '#EF4444' },
+];
+
+const ALIGN_ICONS: Record<HorizontalAlign, string> = {
+  left: 'arrow-back-outline',
+  center: 'remove-outline',
+  right: 'arrow-forward-outline',
+};
 
 export default function ComponentEditScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
@@ -155,6 +172,28 @@ export default function ComponentEditScreen(): React.ReactElement {
     [componentId, pageId, removeAction],
   );
 
+  const handleAlign = useCallback(
+    (align: HorizontalAlign): void => {
+      if (!component) return;
+      if (component.type === 'text') {
+        patch({ align } as Partial<TextComponent>);
+        return;
+      }
+      const newX =
+        align === 'left'
+          ? 0
+          : align === 'center'
+          ? Math.max(0, (1 - component.width) / 2)
+          : Math.max(0, 1 - component.width);
+      patch({ x: newX } as Partial<PageComponent>);
+      Toast.show({
+        type: 'success',
+        text1: `Aligned ${align}`,
+      });
+    },
+    [component, patch],
+  );
+
   if (!project || !page) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
@@ -172,6 +211,11 @@ export default function ComponentEditScreen(): React.ReactElement {
       </SafeAreaView>
     );
   }
+
+  const supportsActions =
+    component.type !== 'input' &&
+    component.type !== 'divider' &&
+    component.type !== 'spacer';
 
   return (
     <SafeAreaView
@@ -208,8 +252,53 @@ export default function ComponentEditScreen(): React.ReactElement {
               <Text className="text-base font-semibold text-text dark:text-dark-text mb-3">
                 Appearance
               </Text>
-              {renderAppearanceEditor(component, patch, colors)}
+              {renderAppearanceEditor(component, patch, colors, handleAlign)}
             </Card>
+
+            {component.type !== 'spacer' &&
+            component.type !== 'divider' ? (
+              <Card className="mb-4">
+                <Text className="text-base font-semibold text-text dark:text-dark-text mb-2">
+                  Position
+                </Text>
+                <Text className="text-xs text-muted dark:text-dark-muted mb-3">
+                  Current: x {(component.x * 100).toFixed(0)}% · y{' '}
+                  {(component.y * 100).toFixed(0)}% ·{' '}
+                  {(component.width * 100).toFixed(0)}% ×{' '}
+                  {(component.height * 100).toFixed(0)}%
+                </Text>
+                <View className="flex-row flex-wrap">
+                  <AlignButton
+                    icon="arrow-back-outline"
+                    label="Left"
+                    active={
+                      Math.abs(component.x) < 0.02
+                    }
+                    onPress={() => handleAlign('left')}
+                  />
+                  <AlignButton
+                    icon="remove-outline"
+                    label="Center"
+                    active={
+                      Math.abs(
+                        component.x - Math.max(0, (1 - component.width) / 2),
+                      ) < 0.02
+                    }
+                    onPress={() => handleAlign('center')}
+                  />
+                  <AlignButton
+                    icon="arrow-forward-outline"
+                    label="Right"
+                    active={
+                      Math.abs(
+                        component.x - Math.max(0, 1 - component.width),
+                      ) < 0.02
+                    }
+                    onPress={() => handleAlign('right')}
+                  />
+                </View>
+              </Card>
+            ) : null}
 
             <Card className="mb-4">
               <View className="flex-row items-center justify-between">
@@ -231,7 +320,7 @@ export default function ComponentEditScreen(): React.ReactElement {
 
             <Card className="mb-4">
               <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
-                Position
+                Order
               </Text>
               <View className="flex-row">
                 <Button
@@ -252,28 +341,32 @@ export default function ComponentEditScreen(): React.ReactElement {
               </View>
             </Card>
 
-            <View className="flex-row items-center justify-between mb-2 px-1">
-              <Text className="text-sm font-semibold text-text dark:text-dark-text">
-                Interactions
-              </Text>
-              <Pressable
-                onPress={() => setShowActionPicker(true)}
-                className="flex-row items-center bg-primary/10 dark:bg-primary/20 px-3 py-1.5 rounded-lg"
-                accessibilityRole="button"
-              >
-                <Ionicons name="add" size={16} color="#2563EB" />
-                <Text className="text-xs font-semibold text-primary ml-1">
-                  Add action
-                </Text>
-              </Pressable>
-            </View>
+            {supportsActions ? (
+              <>
+                <View className="flex-row items-center justify-between mb-2 px-1">
+                  <Text className="text-sm font-semibold text-text dark:text-dark-text">
+                    Interactions
+                  </Text>
+                  <Pressable
+                    onPress={() => setShowActionPicker(true)}
+                    className="flex-row items-center bg-primary/10 dark:bg-primary/20 px-3 py-1.5 rounded-lg"
+                    accessibilityRole="button"
+                  >
+                    <Ionicons name="add" size={16} color="#2563EB" />
+                    <Text className="text-xs font-semibold text-primary ml-1">
+                      Add action
+                    </Text>
+                  </Pressable>
+                </View>
 
-            {component.actions.length === 0 ? (
-              <View className="bg-card dark:bg-dark-card border border-dashed border-border dark:border-dark-border rounded-xl p-4 mb-2 items-center">
-                <Text className="text-xs text-muted dark:text-dark-muted text-center">
-                  No actions yet. Add one to make this component interactive.
-                </Text>
-              </View>
+                {component.actions.length === 0 ? (
+                  <View className="bg-card dark:bg-dark-card border border-dashed border-border dark:border-dark-border rounded-xl p-4 mb-2 items-center">
+                    <Text className="text-xs text-muted dark:text-dark-muted text-center">
+                      No actions yet. Add one to make this component interactive.
+                    </Text>
+                  </View>
+                ) : null}
+              </>
             ) : null}
           </View>
         }
@@ -362,6 +455,10 @@ function describeAction(action: InteractionAction): string {
       return action.key ? `${action.key} = ${action.value || '""'}` : 'No key';
     case 'goBack':
       return 'Return to previous page';
+    case 'nextOnboarding':
+      return 'Advance to next onboarding page';
+    case 'completeOnboarding':
+      return 'Skip the rest of onboarding';
   }
 }
 
@@ -475,283 +572,13 @@ function renderContentEditor(
 
     case 'button':
       return (
-        <Input
-          label="Button label"
-          value={c.label}
-          onChangeText={value =>
-            patch({ label: value } as Partial<ButtonComponent>)
-          }
-          placeholder="Tap me"
-        />
-      );
-
-    case 'spacer':
-      return (
-        <Text className="text-xs text-muted dark:text-dark-muted">
-          Adjust the size in the Appearance section.
-        </Text>
-      );
-
-    case 'divider':
-      return (
-        <Text className="text-xs text-muted dark:text-dark-muted">
-          Adjust thickness in the Appearance section.
-        </Text>
-      );
-
-    case 'row':
-      return (
-        <Text className="text-xs text-muted dark:text-dark-muted">
-          This is a row container. Child components inside rows are managed on the
-          canvas.
-        </Text>
-      );
-
-    case 'input':
-      return (
         <>
           <Input
-            label="Placeholder"
-            value={c.placeholder}
+            label="Button label"
+            value={c.label}
             onChangeText={value =>
-              patch({ placeholder: value } as Partial<InputComponent>)
+              patch({ label: value } as Partial<ButtonComponent>)
             }
-            placeholder="Enter text"
+            placeholder="Tap me"
             containerClassName="mb-3"
           />
-          <Input
-            label="Variable key"
-            value={c.variableKey}
-            onChangeText={value =>
-              patch({ variableKey: value } as Partial<InputComponent>)
-            }
-            placeholder="username"
-            autoCapitalize="none"
-            hint="Used in actions such as Set variable."
-          />
-        </>
-      );
-  }
-}
-
-function renderAppearanceEditor(
-  c: PageComponent,
-  patch: (update: Partial<PageComponent>) => void,
-  colors: ReturnType<typeof useTheme>['colors'],
-): React.ReactElement {
-  switch (c.type) {
-    case 'text':
-      return (
-        <>
-          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
-            Size
-          </Text>
-          <SizeRow
-            value={c.fontSize}
-            onChange={value => patch({ fontSize: value } as Partial<TextComponent>)}
-          />
-          <View className="h-3" />
-          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
-            Align
-          </Text>
-          <AlignRow
-            value={c.align}
-            onChange={value => patch({ align: value } as Partial<TextComponent>)}
-          />
-          <View className="h-3" />
-          <View className="flex-row items-center justify-between">
-            <Text className="text-sm text-text dark:text-dark-text">Bold</Text>
-            <Switch
-              value={c.bold}
-              onValueChange={value =>
-                patch({ bold: value } as Partial<TextComponent>)
-              }
-              trackColor={{ false: colors.border, true: colors.primary }}
-            />
-          </View>
-        </>
-      );
-
-    case 'image':
-      return (
-        <>
-          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
-            Size
-          </Text>
-          <SizeRow
-            value={c.size}
-            onChange={value => patch({ size: value } as Partial<ImageComponent>)}
-          />
-          <View className="h-3" />
-          <View className="flex-row items-center justify-between">
-            <Text className="text-sm text-text dark:text-dark-text">
-              Rounded corners
-            </Text>
-            <Switch
-              value={c.rounded}
-              onValueChange={value =>
-                patch({ rounded: value } as Partial<ImageComponent>)
-              }
-              trackColor={{ false: colors.border, true: colors.primary }}
-            />
-          </View>
-        </>
-      );
-
-    case 'button':
-      return (
-        <>
-          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
-            Size
-          </Text>
-          <SizeRow
-            value={c.size}
-            onChange={value => patch({ size: value } as Partial<ButtonComponent>)}
-          />
-          <View className="h-3" />
-          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
-            Align
-          </Text>
-          <AlignRow
-            value={c.align}
-            onChange={value =>
-              patch({ align: value } as Partial<ButtonComponent>)
-            }
-          />
-        </>
-      );
-
-    case 'spacer':
-      return (
-        <>
-          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
-            Size
-          </Text>
-          <SizeRow
-            value={c.size}
-            onChange={value => patch({ size: value } as Partial<SpacerComponent>)}
-          />
-        </>
-      );
-
-    case 'divider':
-      return (
-        <>
-          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
-            Thickness
-          </Text>
-          <View className="flex-row">
-            {(['thin', 'medium', 'thick'] as const).map(t => {
-              const active = c.thickness === t;
-              return (
-                <Pressable
-                  key={t}
-                  onPress={() =>
-                    patch({ thickness: t } as Partial<DividerComponent>)
-                  }
-                  className={[
-                    'px-3 py-2 rounded-lg mr-2 border',
-                    active
-                      ? 'bg-primary border-primary'
-                      : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
-                  ].join(' ')}
-                >
-                  <Text
-                    className={[
-                      'text-xs font-semibold capitalize',
-                      active ? 'text-white' : 'text-text dark:text-dark-text',
-                    ].join(' ')}
-                  >
-                    {t}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </>
-      );
-
-    case 'video':
-    case 'row':
-    case 'input':
-      return (
-        <Text className="text-xs text-muted dark:text-dark-muted">
-          No appearance options for this component yet.
-        </Text>
-      );
-  }
-}
-
-function SizeRow({
-  value,
-  onChange,
-}: {
-  value: SizePreset;
-  onChange: (v: SizePreset) => void;
-}): React.ReactElement {
-  return (
-    <View className="flex-row flex-wrap">
-      {SIZE_PRESETS.map(s => {
-        const active = value === s;
-        return (
-          <Pressable
-            key={s}
-            onPress={() => onChange(s)}
-            className={[
-              'px-3 py-2 rounded-lg mr-2 mb-2 border',
-              active
-                ? 'bg-primary border-primary'
-                : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
-            ].join(' ')}
-          >
-            <Text
-              className={[
-                'text-xs font-semibold capitalize',
-                active ? 'text-white' : 'text-text dark:text-dark-text',
-              ].join(' ')}
-            >
-              {s}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
-function AlignRow({
-  value,
-  onChange,
-}: {
-  value: HorizontalAlign;
-  onChange: (v: HorizontalAlign) => void;
-}): React.ReactElement {
-  return (
-    <View className="flex-row">
-      {ALIGN_OPTIONS.map(a => {
-        const active = value === a;
-        return (
-          <Pressable
-            key={a}
-            onPress={() => onChange(a)}
-            className={[
-              'px-3 py-2 rounded-lg mr-2 border',
-              active
-                ? 'bg-primary border-primary'
-                : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
-            ].join(' ')}
-          >
-            <Text
-              className={[
-                'text-xs font-semibold capitalize',
-                active ? 'text-white' : 'text-text dark:text-dark-text',
-              ].join(' ')}
-            >
-              {a}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}

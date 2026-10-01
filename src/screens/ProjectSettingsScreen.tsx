@@ -20,9 +20,8 @@ import Card from '@/components/Card';
 import { useProject } from '@/hooks/useProject';
 import { deleteProjectFile } from '@/hooks/useProjects';
 import { useProjectStore } from '@/store/useProjectStore';
-import { formatDate } from '@/utils/format';
-import { sanitizePackageName, sanitizeRepoName } from '@/utils/format';
-import type { Page } from '@/types/project';
+import { formatDate, sanitizePackageName, sanitizeRepoName } from '@/utils/format';
+import type { Page, PageType } from '@/types/project';
 import type { RootStackParamList } from '@/navigation/types';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -33,7 +32,8 @@ export default function ProjectSettingsScreen(): React.ReactElement {
   const route = useRoute<Rt>();
   const { projectId } = route.params;
   const { project, loading, error, reload, save } = useProject(projectId);
-  const setProject = useProjectStore(s => s.setProject);
+  const setProject = useProjectStore(s => s.project);
+  const storeSetProject = useProjectStore(s => s.setProject);
 
   const [name, setName] = useState<string>('');
   const [packageName, setPackageName] = useState<string>('');
@@ -45,8 +45,9 @@ export default function ProjectSettingsScreen(): React.ReactElement {
       setName(project.name);
       setPackageName(project.packageName);
       setVersion(project.version);
+      storeSetProject(project);
     }
-  }, [project]);
+  }, [project, storeSetProject]);
 
   const handleSaveMeta = useCallback(async (): Promise<void> => {
     if (!project) return;
@@ -65,7 +66,7 @@ export default function ProjectSettingsScreen(): React.ReactElement {
         updatedAt: Date.now(),
       };
       await save(next);
-      setProject(next);
+      storeSetProject(next);
       Toast.show({ type: 'success', text1: 'Saved' });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Save failed.';
@@ -73,17 +74,34 @@ export default function ProjectSettingsScreen(): React.ReactElement {
     } finally {
       setSaving(false);
     }
-  }, [name, packageName, project, save, setProject, version]);
+  }, [name, packageName, project, save, storeSetProject, version]);
 
   const handleSetStartPage = useCallback(
     async (pageId: string): Promise<void> => {
       if (!project) return;
       const next = { ...project, startPageId: pageId, updatedAt: Date.now() };
       await save(next);
-      setProject(next);
+      storeSetProject(next);
       Toast.show({ type: 'success', text1: 'Start page updated' });
     },
-    [project, save, setProject],
+    [project, save, storeSetProject],
+  );
+
+  const handleSetPageType = useCallback(
+    async (pageId: string, type: PageType): Promise<void> => {
+      if (!project) return;
+      const pages = project.pages.map(p =>
+        p.id === pageId ? { ...p, type } : p,
+      );
+      const next = { ...project, pages, updatedAt: Date.now() };
+      await save(next);
+      storeSetProject(next);
+      Toast.show({
+        type: 'success',
+        text1: type === 'onboarding' ? 'Set as onboarding page' : 'Set as main page',
+      });
+    },
+    [project, save, storeSetProject],
   );
 
   const handleDeletePage = useCallback(
@@ -113,13 +131,13 @@ export default function ProjectSettingsScreen(): React.ReactElement {
               updatedAt: Date.now(),
             };
             await save(next);
-            setProject(next);
+            storeSetProject(next);
             Toast.show({ type: 'success', text1: 'Page deleted' });
           },
         },
       ]);
     },
-    [project, save, setProject],
+    [project, save, storeSetProject],
   );
 
   const handleDeleteProject = useCallback((): void => {
@@ -135,7 +153,7 @@ export default function ProjectSettingsScreen(): React.ReactElement {
           onPress: async () => {
             try {
               await deleteProjectFile(project.id);
-              setProject(null);
+              storeSetProject(null);
               Toast.show({ type: 'success', text1: 'Project deleted' });
               navigation.popToTop();
             } catch (err) {
@@ -146,9 +164,19 @@ export default function ProjectSettingsScreen(): React.ReactElement {
         },
       ],
     );
-  }, [navigation, project, setProject]);
+  }, [navigation, project, storeSetProject]);
 
   const pages = useMemo<Page[]>(() => project?.pages ?? [], [project]);
+
+  const onboardingCount = useMemo(
+    () => pages.filter(p => p.type === 'onboarding').length,
+    [pages],
+  );
+
+  const mainCount = useMemo(
+    () => pages.filter(p => p.type === 'main').length,
+    [pages],
+  );
 
   if (loading) {
     return (
@@ -241,8 +269,21 @@ export default function ProjectSettingsScreen(): React.ReactElement {
                 Last edited {formatDate(project.updatedAt)}
               </Text>
               <Text className="text-xs text-muted dark:text-dark-muted mt-1">
-                Repo name suggestion:{' '}
-                {sanitizeRepoName(project.name)}
+                Repo name suggestion: {sanitizeRepoName(project.name)}
+              </Text>
+            </Card>
+
+            <Card className="mb-4">
+              <Text className="text-base font-semibold text-text dark:text-dark-text mb-1">
+                Onboarding
+              </Text>
+              <Text className="text-xs text-muted dark:text-dark-muted mb-2">
+                {onboardingCount} onboarding · {mainCount} main
+              </Text>
+              <Text className="text-xs text-muted dark:text-dark-muted">
+                Onboarding pages show only the first time the app opens. After
+                the user completes them (via a "Next onboarding page" action or
+                by skipping), the app jumps to the start page.
               </Text>
             </Card>
 
@@ -253,55 +294,97 @@ export default function ProjectSettingsScreen(): React.ReactElement {
         }
         renderItem={({ item, index }) => {
           const isStart = project.startPageId === item.id;
+          const isOnboarding = item.type === 'onboarding';
           return (
-            <View className="bg-card dark:bg-dark-card border border-border dark:border-dark-border rounded-xl p-3 mb-2 flex-row items-center">
-              <View className="w-8 h-8 rounded-lg bg-primary/10 dark:bg-primary/20 items-center justify-center mr-3">
-                <Text className="text-xs font-bold text-primary">
-                  {index + 1}
-                </Text>
-              </View>
-              <View className="flex-1">
-                <Text
-                  className="text-sm font-semibold text-text dark:text-dark-text"
-                  numberOfLines={1}
-                >
-                  {item.title}
-                </Text>
-                <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">
-                  {item.components.length} component
-                  {item.components.length === 1 ? '' : 's'}
-                  {isStart ? ' · Start page' : ''}
-                </Text>
-              </View>
-              {!isStart ? (
-                <Pressable
-                  onPress={() => {
-                    void handleSetStartPage(item.id);
-                  }}
-                  className="px-2 py-1 rounded-md bg-primary/10 dark:bg-primary/20 mr-2"
-                  accessibilityRole="button"
-                  accessibilityLabel="Set as start page"
-                >
-                  <Text className="text-[10px] font-bold text-primary">
-                    SET START
-                  </Text>
-                </Pressable>
-              ) : (
-                <View className="px-2 py-1 rounded-md bg-success/10 dark:bg-success/20 mr-2">
-                  <Text className="text-[10px] font-bold text-success">
-                    START
+            <View className="bg-card dark:bg-dark-card border border-border dark:border-dark-border rounded-xl p-3 mb-2">
+              <View className="flex-row items-center mb-2">
+                <View className="w-8 h-8 rounded-lg bg-primary/10 dark:bg-primary/20 items-center justify-center mr-3">
+                  <Text className="text-xs font-bold text-primary">
+                    {index + 1}
                   </Text>
                 </View>
-              )}
-              <Pressable
-                onPress={() => handleDeletePage(item)}
-                hitSlop={8}
-                className="p-1"
-                accessibilityRole="button"
-                accessibilityLabel="Delete page"
-              >
-                <Ionicons name="trash-outline" size={18} color="#EF4444" />
-              </Pressable>
+                <View className="flex-1">
+                  <Text
+                    className="text-sm font-semibold text-text dark:text-dark-text"
+                    numberOfLines={1}
+                  >
+                    {item.title}
+                  </Text>
+                  <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">
+                    {item.components.length} component
+                    {item.components.length === 1 ? '' : 's'}
+                    {isStart ? ' · Start page' : ''}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() => handleDeletePage(item)}
+                  hitSlop={8}
+                  className="p-1"
+                  accessibilityRole="button"
+                  accessibilityLabel="Delete page"
+                >
+                  <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                </Pressable>
+              </View>
+
+              <View className="flex-row items-center mb-2">
+                <Pressable
+                  onPress={() =>
+                    handleSetPageType(
+                      item.id,
+                      isOnboarding ? 'main' : 'onboarding',
+                    )
+                  }
+                  className={[
+                    'flex-row items-center px-3 py-2 rounded-lg mr-2',
+                    isOnboarding
+                      ? 'bg-amber-100 dark:bg-amber-900/40'
+                      : 'bg-slate-100 dark:bg-slate-800',
+                  ].join(' ')}
+                  accessibilityRole="button"
+                >
+                  <Ionicons
+                    name={isOnboarding ? 'play-skip-forward' : 'home'}
+                    size={12}
+                    color={isOnboarding ? '#D97706' : '#64748B'}
+                  />
+                  <Text
+                    className={[
+                      'text-[10px] font-bold ml-1 uppercase',
+                      isOnboarding
+                        ? 'text-amber-700 dark:text-amber-400'
+                        : 'text-slate-600 dark:text-slate-400',
+                    ].join(' ')}
+                  >
+                    {isOnboarding ? 'Onboarding' : 'Main'}
+                  </Text>
+                </Pressable>
+
+                {!isStart ? (
+                  <Pressable
+                    onPress={() => {
+                      void handleSetStartPage(item.id);
+                    }}
+                    className="px-2 py-2 rounded-lg bg-primary/10 dark:bg-primary/20"
+                    accessibilityRole="button"
+                    accessibilityLabel="Set as start page"
+                  >
+                    <Text className="text-[10px] font-bold text-primary">
+                      SET AS START
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <View className="px-2 py-2 rounded-lg bg-success/10 dark:bg-success/20">
+                    <Text className="text-[10px] font-bold text-success">
+                      START PAGE
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <Text className="text-[10px] text-muted dark:text-dark-muted">
+                Tap the badge to toggle Onboarding / Main
+              </Text>
             </View>
           );
         }}

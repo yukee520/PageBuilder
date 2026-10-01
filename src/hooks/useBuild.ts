@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { BuildConfig, BuildPhase, BuildResult, BuildState } from '@/types/build';
+import type {
+  BuildConfig,
+  BuildPhase,
+  BuildResult,
+  BuildState,
+} from '@/types/build';
 import {
   createRepoFromTemplate,
   findLatestApkUrl,
@@ -11,13 +16,14 @@ import {
   validateToken,
   type CommitFile,
 } from '@/api/github';
+import { RUNTIME_FILES } from '@/services/runtimeSource';
 
 const POLL_INTERVAL_MS = 10000;
-const POLL_TIMEOUT_MS = 20 * 60 * 1000;
+const POLL_TIMEOUT_MS = 25 * 60 * 1000;
+const REPO_INIT_WAIT_MS = 8000;
 
 export interface BuildFiles {
   projectJson: string;
-  extraFiles?: CommitFile[];
 }
 
 export interface StartBuildParams {
@@ -73,17 +79,45 @@ function toBase64(value: string): string {
   return result;
 }
 
+function buildCommitFiles(files: BuildFiles): CommitFile[] {
+  const result: CommitFile[] = [];
+
+  result.push({
+    path: 'App.tsx',
+    contentBase64: toBase64(
+      "export { default } from './runtime/App';\n",
+    ),
+    message: 'chore: entry point from PageBuilder',
+  });
+
+  result.push({
+    path: 'project.json',
+    contentBase64: toBase64(files.projectJson),
+    message: 'chore: project data from PageBuilder',
+  });
+
+  for (const runtimeFile of RUNTIME_FILES) {
+    result.push({
+      path: runtimeFile.path,
+      contentBase64: runtimeFile.base64,
+      message: `chore: runtime ${runtimeFile.path}`,
+    });
+  }
+
+  return result;
+}
+
 export function useBuild(): UseBuildResult {
   const [state, setState] = useState<BuildState>(initialState);
   const cancelledRef = useRef<boolean>(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const clearPoll = (): void => {
+  const clearPoll = useCallback((): void => {
     if (pollTimerRef.current) {
       clearTimeout(pollTimerRef.current);
       pollTimerRef.current = null;
     }
-  };
+  }, []);
 
   const cancel = useCallback((): void => {
     cancelledRef.current = true;
@@ -94,13 +128,13 @@ export function useBuild(): UseBuildResult {
       error: 'Build cancelled by user.',
       message: 'Cancelled',
     }));
-  }, []);
+  }, [clearPoll]);
 
   const reset = useCallback((): void => {
     cancelledRef.current = false;
     clearPoll();
     setState(initialState);
-  }, []);
+  }, [clearPoll]);
 
   const update = useCallback((patch: Partial<BuildState>): void => {
     setState(prev => ({ ...prev, ...patch }));
@@ -119,7 +153,8 @@ export function useBuild(): UseBuildResult {
       if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
         update({
           phase: 'failed',
-          error: 'Build timed out after 20 minutes. Check the repository on GitHub.',
+          error:
+            'Build timed out after 25 minutes. Check the repository on GitHub.',
           message: 'Timed out',
         });
         return;
@@ -137,7 +172,7 @@ export function useBuild(): UseBuildResult {
             });
 
             let apkUrl: string | null = null;
-            for (let attempt = 0; attempt < 6; attempt += 1) {
+            for (let attempt = 0; attempt < 8; attempt += 1) {
               apkUrl = await findLatestApkUrl(token, owner, repo);
               if (apkUrl) break;
               await new Promise<void>(resolve => {
@@ -176,7 +211,8 @@ export function useBuild(): UseBuildResult {
           update({
             phase: 'failed',
             message: 'Build failed',
-            error: 'The GitHub Actions workflow failed. Open the run on GitHub to see details.',
+            error:
+              'The GitHub Actions workflow failed. Open the run on GitHub to see details.',
             run: {
               id: run.id,
               status: run.status,
@@ -260,6 +296,11 @@ export function useBuild(): UseBuildResult {
 
         const exists = await repoExists(config.token, owner, config.repoName);
         if (!exists) {
+          update({
+            phase: 'creating-repo',
+            message: `Creating repository "${config.repoName}" from template`,
+            progress: 20,
+          });
           await createRepoFromTemplate(
             config.token,
             config.templateOwner,
@@ -268,32 +309,30 @@ export function useBuild(): UseBuildResult {
             config.repoName,
             config.isPrivate,
           );
+          update({
+            phase: 'creating-repo',
+            message: 'Waiting for repository to initialize',
+            progress: 25,
+          });
           await new Promise<void>(resolve => {
-            setTimeout(resolve, 4000);
+            setTimeout(resolve, REPO_INIT_WAIT_MS);
           });
         }
 
         update({
           phase: 'pushing-files',
-          message: 'Uploading project data',
+          message: 'Uploading project + runtime files',
           progress: 35,
         });
 
-        const mainFiles: CommitFile[] = [
-          {
-            path: 'project.json',
-            contentBase64: toBase64(files.projectJson),
-            message: 'chore: update project.json',
-          },
-          ...(files.extraFiles ?? []),
-        ];
+        const commitFiles = buildCommitFiles(files);
 
         await putMultipleFiles(
           config.token,
           owner,
           config.repoName,
           'main',
-          mainFiles,
+          commitFiles,
           'chore: update from PageBuilder',
         );
 
@@ -306,7 +345,7 @@ export function useBuild(): UseBuildResult {
         const startedAt = Date.now();
         let runId: number | null = null;
 
-        for (let attempt = 0; attempt < 12; attempt += 1) {
+        for (let attempt = 0; attempt < 15; attempt += 1) {
           if (cancelledRef.current) return;
           const runs = await listWorkflowRuns(
             config.token,
@@ -314,9 +353,22 @@ export function useBuild(): UseBuildResult {
             config.repoName,
             { perPage: 5 },
           );
-          const newest = runs[0];
-          if (newest && new Date(newest.created_at).getTime() >= startedAt - 15000) {
-            runId = newest.id;
+          const newest = runs.find(
+            r =>
+              new Date(r.created_at).getTime() >= startedAt - 20000 &&
+              r.status !== 'completed',
+          );
+          const fallback = runs[0];
+          const candidate = newest ?? fallback;
+          if (candidate && candidate.status !== 'completed') {
+            runId = candidate.id;
+            break;
+          }
+          if (
+            candidate &&
+            new Date(candidate.created_at).getTime() >= startedAt - 20000
+          ) {
+            runId = candidate.id;
             break;
           }
           await new Promise<void>(resolve => {
@@ -328,7 +380,7 @@ export function useBuild(): UseBuildResult {
           update({
             phase: 'failed',
             error:
-              'Could not find the build run. Open the repository on GitHub to check Actions.',
+              'Could not find the build run. Open the repository on GitHub → Actions to check.',
             message: 'No run detected',
           });
           return;
@@ -351,7 +403,7 @@ export function useBuild(): UseBuildResult {
         update({ phase: 'failed', error: message, message: 'Error' });
       }
     },
-    [pollRun, update],
+    [clearPoll, pollRun, update],
   );
 
   useEffect(() => {
@@ -359,7 +411,7 @@ export function useBuild(): UseBuildResult {
       cancelledRef.current = true;
       clearPoll();
     };
-  }, []);
+  }, [clearPoll]);
 
   return { state, start, reset, cancel };
 }

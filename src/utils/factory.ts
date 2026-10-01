@@ -1,6 +1,6 @@
 import type { InteractionAction } from '@/types/action';
 import type { ComponentType, PageComponent } from '@/types/component';
-import type { Page, Project } from '@/types/project';
+import type { Page, PageType, Project } from '@/types/project';
 import { PROJECT_FILE_VERSION } from '@/types/project';
 import {
   generateActionId,
@@ -17,17 +17,21 @@ import {
 
 const DROP_STEP_FRAC = 0.02;
 
-export function createEmptyPage(title: string): Page {
+export function createEmptyPage(
+  title: string,
+  type: PageType = 'main',
+): Page {
   return {
     id: generatePageId(),
     title,
     components: [],
+    type,
   };
 }
 
 export function createProject(name: string): Project {
   const now = Date.now();
-  const firstPage = createEmptyPage('Home');
+  const firstPage = createEmptyPage('Home', 'main');
   const packageBase = sanitizeRepoName(name).replace(/-/g, '');
   return {
     id: generateProjectId(),
@@ -57,9 +61,7 @@ function findDropPosition(
 
   while (attempts < 30) {
     const overlapping = components.some(
-      c =>
-        Math.abs(c.x - x) < 0.02 &&
-        Math.abs(c.y - y) < 0.02,
+      c => Math.abs(c.x - x) < 0.02 && Math.abs(c.y - y) < 0.02,
     );
     if (!overlapping) break;
     y += DROP_STEP_FRAC;
@@ -182,6 +184,10 @@ export function createAction(type: InteractionAction['type']): InteractionAction
       return { id, type: 'setVariable', key: generateVariableKey(), value: '' };
     case 'goBack':
       return { id, type: 'goBack' };
+    case 'nextOnboarding':
+      return { id, type: 'nextOnboarding' };
+    case 'completeOnboarding':
+      return { id, type: 'completeOnboarding' };
     default: {
       const _exhaustive: never = type;
       throw new Error(`Unsupported action type: ${String(_exhaustive)}`);

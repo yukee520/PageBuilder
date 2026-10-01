@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { InteractionAction } from '@/types/action';
 import type { ComponentType, PageComponent } from '@/types/component';
-import type { Page, Project } from '@/types/project';
+import type { Page, PageType, Project } from '@/types/project';
 import { createAction, createComponent, createEmptyPage } from '@/utils/factory';
 import { generatePageId } from '@/utils/id';
 
@@ -18,10 +18,11 @@ export interface ProjectStoreState {
   setPackageName: (packageName: string) => void;
   setVersion: (version: string) => void;
 
-  addPage: (title?: string) => string;
+  addPage: (title?: string, type?: PageType) => string;
   removePage: (pageId: string) => void;
   renamePage: (pageId: string, title: string) => void;
   movePage: (pageId: string, direction: 'up' | 'down') => void;
+  setPageType: (pageId: string, type: PageType) => void;
 
   addComponent: (pageId: string, type: ComponentType) => string | null;
   updateComponent: (
@@ -35,10 +36,7 @@ export interface ProjectStoreState {
     componentId: string,
     direction: 'up' | 'down',
   ) => void;
-  reorderComponents: (
-    pageId: string,
-    orderedIds: string[],
-  ) => void;
+  reorderComponents: (pageId: string, orderedIds: string[]) => void;
   toggleComponentVisibility: (pageId: string, componentId: string) => void;
 
   addAction: (
@@ -135,11 +133,12 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     set({ project: touch({ ...project, version }), dirty: true });
   },
 
-  addPage: (title?: string) => {
+  addPage: (title?: string, type?: PageType) => {
     const { project } = get();
     if (!project) return '';
     const pageNumber = project.pages.length + 1;
-    const newPage = createEmptyPage(title ?? `Page ${pageNumber}`);
+    const pageType: PageType = type ?? 'main';
+    const newPage = createEmptyPage(title ?? `Page ${pageNumber}`, pageType);
     set({
       project: touch({
         ...project,
@@ -158,8 +157,7 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     const pages = project.pages.filter(p => p.id !== pageId);
     const nextStart =
       project.startPageId === pageId ? pages[0].id : project.startPageId;
-    const nextActive =
-      activePageId === pageId ? pages[0].id : activePageId;
+    const nextActive = activePageId === pageId ? pages[0].id : activePageId;
     set({
       project: touch({ ...project, pages, startPageId: nextStart }),
       activePageId: nextActive,
@@ -189,10 +187,20 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     set({ project: touch({ ...project, pages }), dirty: true });
   },
 
+  setPageType: (pageId, type) => {
+    const { project } = get();
+    if (!project) return;
+    set({
+      project: touch(mapPages(project, pageId, p => ({ ...p, type }))),
+      dirty: true,
+    });
+  },
+
   addComponent: (pageId, type) => {
     const { project } = get();
     if (!project) return null;
-    const component = createComponent(type);
+    const page = project.pages.find(p => p.id === pageId);
+    const component = createComponent(type, page?.components ?? []);
     set({
       project: touch(
         mapPages(project, pageId, page => ({
@@ -372,9 +380,5 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
 
   markClean: () => set({ dirty: false }),
 }));
-
-export function createEmptyProjectFromStore(): Project | null {
-  return null;
-}
 
 export { generatePageId };

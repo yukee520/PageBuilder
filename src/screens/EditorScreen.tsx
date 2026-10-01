@@ -610,3 +610,34 @@ export default function EditorScreen(): React.ReactElement {
           </Pressable>
         </Pressable>
       ) : null}
+    </SafeAreaView>
+  );
+}
+
+interface ToolbarButtonProps {
+  icon: string;
+  label: string;
+  onPress: () => void;
+  danger?: boolean;
+}
+
+function ToolbarButton({
+  icon,
+  label,
+  onPress,
+  danger,
+}: ToolbarButtonProps): React.ReactElement {
+  const color = danger ? '#EF4444' : '#2563EB';
+  return (
+    <Pressable
+      onPress={onPress}
+      className="flex-row items-center px-3 py-2 rounded-lg bg-background dark:bg-dark-background mr-2 mb-2 active:opacity-70"
+      accessibilityRole="button"
+    >
+      <Ionicons name={icon} size={14} color={color} />
+      <Text className="text-xs font-semibold ml-1" style={{ color }}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}

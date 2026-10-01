@@ -582,3 +582,384 @@ function renderContentEditor(
             placeholder="Tap me"
             containerClassName="mb-3"
           />
+          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
+            Style
+          </Text>
+          <View className="flex-row flex-wrap">
+            {(['primary', 'secondary', 'danger'] as const).map(v => {
+              const active = c.variant === v;
+              return (
+                <Pressable
+                  key={v}
+                  onPress={() =>
+                    patch({ variant: v } as Partial<ButtonComponent>)
+                  }
+                  className={[
+                    'px-3 py-2 rounded-lg mr-2 mb-2 border',
+                    active
+                      ? 'bg-primary border-primary'
+                      : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
+                  ].join(' ')}
+                >
+                  <Text
+                    className={[
+                      'text-xs font-semibold capitalize',
+                      active
+                        ? 'text-white'
+                        : 'text-text dark:text-dark-text',
+                    ].join(' ')}
+                  >
+                    {v}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      );
+
+    case 'spacer':
+      return (
+        <Text className="text-xs text-muted dark:text-dark-muted">
+          Adjust the height of this spacer by resizing it on the canvas.
+        </Text>
+      );
+
+    case 'divider':
+      return (
+        <Text className="text-xs text-muted dark:text-dark-muted">
+          Adjust thickness in the Appearance section.
+        </Text>
+      );
+
+    case 'row':
+      return (
+        <Text className="text-xs text-muted dark:text-dark-muted">
+          This is a row container. Child components inside rows are managed on the
+          canvas.
+        </Text>
+      );
+
+    case 'input':
+      return (
+        <>
+          <Input
+            label="Placeholder"
+            value={c.placeholder}
+            onChangeText={value =>
+              patch({ placeholder: value } as Partial<InputComponent>)
+            }
+            placeholder="Enter text"
+            containerClassName="mb-3"
+          />
+          <Input
+            label="Variable key"
+            value={c.variableKey}
+            onChangeText={value =>
+              patch({ variableKey: value } as Partial<InputComponent>)
+            }
+            placeholder="username"
+            autoCapitalize="none"
+            hint="Used in actions such as Set variable."
+          />
+        </>
+      );
+  }
+}
+
+function renderAppearanceEditor(
+  c: PageComponent,
+  patch: (update: Partial<PageComponent>) => void,
+  colors: ReturnType<typeof useTheme>['colors'],
+  onAlign: (align: HorizontalAlign) => void,
+): React.ReactElement {
+  switch (c.type) {
+    case 'text':
+      return (
+        <>
+          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
+            Text size
+          </Text>
+          <View className="flex-row flex-wrap mb-3">
+            {SIZE_PRESETS.map(s => {
+              const active = c.fontSize === s;
+              return (
+                <Pressable
+                  key={s}
+                  onPress={() =>
+                    patch({ fontSize: s } as Partial<TextComponent>)
+                  }
+                  className={[
+                    'px-3 py-2 rounded-lg mr-2 mb-2 border',
+                    active
+                      ? 'bg-primary border-primary'
+                      : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
+                  ].join(' ')}
+                >
+                  <Text
+                    className={[
+                      'text-xs font-semibold capitalize',
+                      active
+                        ? 'text-white'
+                        : 'text-text dark:text-dark-text',
+                    ].join(' ')}
+                  >
+                    {s}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
+            Text align (inside box)
+          </Text>
+          <View className="flex-row mb-3">
+            {ALIGN_OPTIONS.map(a => {
+              const active = c.align === a;
+              return (
+                <Pressable
+                  key={a}
+                  onPress={() =>
+                    patch({ align: a } as Partial<TextComponent>)
+                  }
+                  className={[
+                    'px-3 py-2 rounded-lg mr-2 border',
+                    active
+                      ? 'bg-primary border-primary'
+                      : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
+                  ].join(' ')}
+                >
+                  <Text
+                    className={[
+                      'text-xs font-semibold capitalize',
+                      active
+                        ? 'text-white'
+                        : 'text-text dark:text-dark-text',
+                    ].join(' ')}
+                  >
+                    {a}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
+            Text color
+          </Text>
+          <View className="flex-row flex-wrap mb-3">
+            {TEXT_COLOR_PRESETS.map(preset => {
+              const active =
+                (c.color ?? null) === preset.value;
+              return (
+                <Pressable
+                  key={preset.label}
+                  onPress={() =>
+                    patch({ color: preset.value } as Partial<TextComponent>)
+                  }
+                  className={[
+                    'px-3 py-2 rounded-lg mr-2 mb-2 border',
+                    active
+                      ? 'bg-primary border-primary'
+                      : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
+                  ].join(' ')}
+                >
+                  <Text
+                    className={[
+                      'text-xs font-semibold',
+                      active
+                        ? 'text-white'
+                        : 'text-text dark:text-dark-text',
+                    ].join(' ')}
+                  >
+                    {preset.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View className="flex-row items-center justify-between">
+            <Text className="text-sm text-text dark:text-dark-text">Bold</Text>
+            <Switch
+              value={c.bold}
+              onValueChange={value =>
+                patch({ bold: value } as Partial<TextComponent>)
+              }
+              trackColor={{ false: colors.border, true: colors.primary }}
+            />
+          </View>
+        </>
+      );
+
+    case 'image':
+      return (
+        <>
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className="text-sm text-text dark:text-dark-text">
+              Rounded corners
+            </Text>
+            <Switch
+              value={c.rounded}
+              onValueChange={value =>
+                patch({ rounded: value } as Partial<ImageComponent>)
+              }
+              trackColor={{ false: colors.border, true: colors.primary }}
+            />
+          </View>
+          <View className="flex-row items-center justify-between">
+            <View className="flex-1 pr-3">
+              <Text className="text-sm text-text dark:text-dark-text">
+                Fill the box (cover)
+              </Text>
+              <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">
+                Off: image fits inside the box. On: image fills the box, may crop.
+              </Text>
+            </View>
+            <Switch
+              value={c.backgroundMode}
+              onValueChange={value =>
+                patch({ backgroundMode: value } as Partial<ImageComponent>)
+              }
+              trackColor={{ false: colors.border, true: colors.primary }}
+            />
+          </View>
+        </>
+      );
+
+    case 'button':
+      return (
+        <>
+          <Text className="text-xs text-muted dark:text-dark-muted mb-3">
+            Use the toolbar in the editor to resize, or "Fit width" to make the
+            button span the full canvas width.
+          </Text>
+          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
+            Horizontal align (move box)
+          </Text>
+          <View className="flex-row">
+            {ALIGN_OPTIONS.map(a => (
+              <AlignButton
+                key={a}
+                icon={ALIGN_ICONS[a]}
+                label={a.charAt(0).toUpperCase() + a.slice(1)}
+                active={false}
+                onPress={() => onAlign(a)}
+              />
+            ))}
+          </View>
+        </>
+      );
+
+    case 'divider':
+      return (
+        <>
+          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
+            Thickness
+          </Text>
+          <View className="flex-row">
+            {(['thin', 'medium', 'thick'] as const).map(t => {
+              const active = c.thickness === t;
+              return (
+                <Pressable
+                  key={t}
+                  onPress={() =>
+                    patch({ thickness: t } as Partial<DividerComponent>)
+                  }
+                  className={[
+                    'px-3 py-2 rounded-lg mr-2 border',
+                    active
+                      ? 'bg-primary border-primary'
+                      : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
+                  ].join(' ')}
+                >
+                  <Text
+                    className={[
+                      'text-xs font-semibold capitalize',
+                      active ? 'text-white' : 'text-text dark:text-dark-text',
+                    ].join(' ')}
+                  >
+                    {t}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      );
+
+    case 'spacer':
+      return (
+        <Text className="text-xs text-muted dark:text-dark-muted">
+          Resize this spacer on the canvas to change its height.
+        </Text>
+      );
+
+    case 'video':
+      return (
+        <>
+          <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
+            Horizontal align (move box)
+          </Text>
+          <View className="flex-row">
+            {ALIGN_OPTIONS.map(a => (
+              <AlignButton
+                key={a}
+                icon={ALIGN_ICONS[a]}
+                label={a.charAt(0).toUpperCase() + a.slice(1)}
+                active={false}
+                onPress={() => onAlign(a)}
+              />
+            ))}
+          </View>
+        </>
+      );
+
+    case 'row':
+    case 'input':
+      return (
+        <Text className="text-xs text-muted dark:text-dark-muted">
+          No appearance options for this component yet.
+        </Text>
+      );
+  }
+}
+
+function AlignButton({
+  icon,
+  label,
+  active,
+  onPress,
+}: {
+  icon: string;
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}): React.ReactElement {
+  return (
+    <Pressable
+      onPress={onPress}
+      className={[
+        'flex-row items-center px-3 py-2 rounded-lg mr-2 mb-2 border',
+        active
+          ? 'bg-primary border-primary'
+          : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
+      ].join(' ')}
+    >
+      <Ionicons
+        name={icon}
+        size={14}
+        color={active ? '#FFFFFF' : '#2563EB'}
+      />
+      <Text
+        className={[
+          'text-xs font-semibold ml-1',
+          active ? 'text-white' : 'text-text dark:text-dark-text',
+        ].join(' ')}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}

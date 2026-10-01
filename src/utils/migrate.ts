@@ -1,5 +1,5 @@
 import type { PageComponent } from '@/types/component';
-import type { Page, Project } from '@/types/project';
+import type { Page, PageType, Project } from '@/types/project';
 import { DEFAULT_COMPONENT_SIZE_FRAC } from '@/utils/canvas';
 
 const VERTICAL_GAP_FRAC = 0.015;
@@ -11,6 +11,13 @@ interface LegacyBox {
   width?: number;
   height?: number;
   zIndex?: number;
+}
+
+interface LegacyPage {
+  id: string;
+  title: string;
+  components: PageComponent[];
+  type?: PageType;
 }
 
 function looksLikeFraction(c: PageComponent): boolean {
@@ -47,7 +54,8 @@ function inferDefaultSize(
     const thickness = c.thickness;
     return {
       width: fallback.width,
-      height: thickness === 'thick' ? 0.01 : thickness === 'medium' ? 0.007 : 0.004,
+      height:
+        thickness === 'thick' ? 0.01 : thickness === 'medium' ? 0.007 : 0.004,
     };
   }
 
@@ -67,7 +75,10 @@ function normalizeComponent(
         ...c,
         zIndex: typeof existing.zIndex === 'number' ? existing.zIndex : z,
       } as PageComponent,
-      nextYCursor: Math.max(yCursor, (existing.y ?? 0) + (existing.height ?? 0) + VERTICAL_GAP_FRAC),
+      nextYCursor: Math.max(
+        yCursor,
+        (existing.y ?? 0) + (existing.height ?? 0) + VERTICAL_GAP_FRAC,
+      ),
     };
   }
 
@@ -76,7 +87,10 @@ function normalizeComponent(
     typeof existing.y === 'number' &&
     typeof existing.width === 'number' &&
     typeof existing.height === 'number' &&
-    (existing.x > 2 || existing.y > 2 || existing.width > 2 || existing.height > 2);
+    (existing.x > 2 ||
+      existing.y > 2 ||
+      existing.width > 2 ||
+      existing.height > 2);
 
   if (hasVirtualPosition) {
     const migrated = {
@@ -113,7 +127,7 @@ function normalizeComponent(
   };
 }
 
-function migratePage(page: Page): Page {
+function migratePage(page: Page | LegacyPage): Page {
   const components = Array.isArray(page.components) ? page.components : [];
   let yCursor = HORIZONTAL_MARGIN_FRAC;
   let z = 1;
@@ -127,9 +141,16 @@ function migratePage(page: Page): Page {
     z += 1;
   }
 
+  const type: PageType =
+    page.type === 'onboarding' || page.type === 'main'
+      ? page.type
+      : 'main';
+
   return {
-    ...page,
+    id: page.id,
+    title: page.title,
     components: nextComponents,
+    type,
   };
 }
 
@@ -141,6 +162,11 @@ export function migrateProject(project: Project): Project {
   const pages = project.pages.map(page => {
     const original = page.components ?? [];
     const migrated = migratePage(page);
+
+    if (page.type !== migrated.type) {
+      changed = true;
+    }
+
     if (
       migrated.components.length !== original.length ||
       migrated.components.some((c, i) => {

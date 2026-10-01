@@ -219,11 +219,12 @@ export default function DraggableComponent({
   );
 
   const handleResizeEnd = useCallback((): void => {
-    isGesturingRef.current = false;
-    const current = { ...resizeBaseRef.current };
-    setDbg('RESIZE END');
-    onChangeEndRef.current?.(componentRef.current.id, current);
-  }, []);
+  isGesturingRef.current = false;
+  console.log('[resize] END, base still', resizeBaseRef.current, 'component now', componentRef.current);
+  const current = { ...resizeBaseRef.current };
+  setDbg('RESIZE END');
+  onChangeEndRef.current?.(componentRef.current.id, current);
+}, []);
 
   const dragGesture = useMemo(
     () =>

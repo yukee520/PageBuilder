@@ -5,7 +5,9 @@ export type ActionType =
   | 'playVideo'
   | 'toggleVisibility'
   | 'setVariable'
-  | 'goBack';
+  | 'goBack'
+  | 'nextOnboarding'
+  | 'completeOnboarding';
 
 export interface NavigateAction {
   id: string;
@@ -50,6 +52,16 @@ export interface GoBackAction {
   type: 'goBack';
 }
 
+export interface NextOnboardingAction {
+  id: string;
+  type: 'nextOnboarding';
+}
+
+export interface CompleteOnboardingAction {
+  id: string;
+  type: 'completeOnboarding';
+}
+
 export type InteractionAction =
   | NavigateAction
   | OpenUrlAction
@@ -57,7 +69,9 @@ export type InteractionAction =
   | PlayVideoAction
   | ToggleVisibilityAction
   | SetVariableAction
-  | GoBackAction;
+  | GoBackAction
+  | NextOnboardingAction
+  | CompleteOnboardingAction;
 
 export const ACTION_TYPE_LABELS: Record<ActionType, string> = {
   navigate: 'Go to page',
@@ -67,6 +81,8 @@ export const ACTION_TYPE_LABELS: Record<ActionType, string> = {
   toggleVisibility: 'Show / hide component',
   setVariable: 'Set variable',
   goBack: 'Go back',
+  nextOnboarding: 'Next onboarding page',
+  completeOnboarding: 'Skip onboarding',
 };
 
 export const ACTION_TYPE_ICONS: Record<ActionType, string> = {
@@ -77,6 +93,8 @@ export const ACTION_TYPE_ICONS: Record<ActionType, string> = {
   toggleVisibility: 'eye-outline',
   setVariable: 'code-working-outline',
   goBack: 'arrow-back-circle-outline',
+  nextOnboarding: 'play-skip-forward-outline',
+  completeOnboarding: 'flag-outline',
 };
 
 export function isNavigateAction(a: InteractionAction): a is NavigateAction {
@@ -107,4 +125,16 @@ export function isSetVariableAction(a: InteractionAction): a is SetVariableActio
 
 export function isGoBackAction(a: InteractionAction): a is GoBackAction {
   return a.type === 'goBack';
+}
+
+export function isNextOnboardingAction(
+  a: InteractionAction,
+): a is NextOnboardingAction {
+  return a.type === 'nextOnboarding';
+}
+
+export function isCompleteOnboardingAction(
+  a: InteractionAction,
+): a is CompleteOnboardingAction {
+  return a.type === 'completeOnboarding';
 }

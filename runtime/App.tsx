@@ -1,17 +1,26 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Linking,
   SafeAreaView,
-  ScrollView,
   StatusBar,
   Text,
   View,
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import RuntimeRenderer from './src/RuntimeRenderer';
-import { handleAction, type RuntimeState } from './src/RuntimeActionHandler';
+import {
+  handleAction,
+  resolveStartPage,
+  type RuntimeState,
+} from './src/RuntimeActionHandler';
+import {
+  DEFAULT_PROGRESS,
+  loadProgress,
+  saveProgress,
+  type OnboardingProgress,
+} from './src/onboardingStorage';
 import type { Project } from '../src/types/project';
 
 const PROJECT_URL = 'project.json';
@@ -38,7 +47,16 @@ export default function App(): React.ReactElement {
     history: [],
     variables: {},
     hiddenComponentIds: {},
+    onboardingProgress: DEFAULT_PROGRESS,
   });
+
+  const persistProgress = useCallback(
+    (progress: OnboardingProgress): void => {
+      if (!project) return;
+      void saveProgress(project.id, progress);
+    },
+    [project],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -46,11 +64,18 @@ export default function App(): React.ReactElement {
       try {
         const loaded = await loadProject();
         if (cancelled) return;
-        const startPageId =
-          loaded.pages.find(p => p.id === loaded.startPageId)?.id ??
-          loaded.pages[0].id;
+
+        const progress = await loadProgress(loaded.id);
+        if (cancelled) return;
+
+        const startId = resolveStartPage(loaded, progress);
+
         setProject(loaded);
-        setState(prev => ({ ...prev, activePageId: startPageId }));
+        setState(prev => ({
+          ...prev,
+          activePageId: startId,
+          onboardingProgress: progress,
+        }));
       } catch (err) {
         if (cancelled) return;
         const message =
@@ -76,12 +101,60 @@ export default function App(): React.ReactElement {
     );
   }, [project, state.activePageId]);
 
+  const onComponentPress = useCallback(
+    (component: import('../src/types/component').PageComponent): void => {
+      if (!project) return;
+      if (component.actions.length === 0) return;
+      for (const action of component.actions) {
+        handleAction(action, {
+          project,
+          state,
+          setState,
+          onPersistProgress: persistProgress,
+          openUrl: url => {
+            Linking.openURL(url).catch(() => {
+              Alert.alert('Could not open link', url);
+            });
+          },
+          showAlert: (title, message) => {
+            Alert.alert(title, message);
+          },
+          playVideo: url => {
+            Linking.openURL(url).catch(() => {
+              Alert.alert('Could not play video', url);
+            });
+          },
+        });
+      }
+    },
+    [persistProgress, project, state],
+  );
+
+  const onInputChange = useCallback(
+    (componentId: string, value: string): void => {
+      if (!activePage) return;
+      const component = activePage.components.find(c => c.id === componentId);
+      if (component && component.type === 'input') {
+        setState(prev => ({
+          ...prev,
+          variables: {
+            ...prev.variables,
+            [component.variableKey]: value,
+          },
+        }));
+      }
+    },
+    [activePage],
+  );
+
   if (loading) {
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaView style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
           <StatusBar barStyle="dark-content" />
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <View
+            style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+          >
             <ActivityIndicator size="large" color="#2563EB" />
             <Text style={{ marginTop: 12, color: '#64748B' }}>
               Loading your app…
@@ -133,55 +206,16 @@ export default function App(): React.ReactElement {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#E2E8F0' }}>
         <StatusBar barStyle="dark-content" />
-        <ScrollView
-          contentContainerStyle={{ paddingVertical: 20 }}
-          showsVerticalScrollIndicator={false}
-        >
-          <RuntimeRenderer
-            page={activePage}
-            variables={state.variables}
-            hiddenComponentIds={state.hiddenComponentIds}
-            onComponentPress={component => {
-              if (component.actions.length === 0) return;
-              for (const action of component.actions) {
-                handleAction(action, {
-                  project,
-                  state,
-                  setState,
-                  openUrl: url => {
-                    Linking.openURL(url).catch(() => {
-                      Alert.alert('Could not open link', url);
-                    });
-                  },
-                  showAlert: (title, message) => {
-                    Alert.alert(title, message);
-                  },
-                  playVideo: url => {
-                    Linking.openURL(url).catch(() => {
-                      Alert.alert('Could not play video', url);
-                    });
-                  },
-                });
-              }
-            }}
-            onInputChange={(componentId, value) => {
-              const component = activePage.components.find(
-                c => c.id === componentId,
-              );
-              if (component && component.type === 'input') {
-                setState(prev => ({
-                  ...prev,
-                  variables: {
-                    ...prev.variables,
-                    [component.variableKey]: value,
-                  },
-                }));
-              }
-            }}
-          />
-        </ScrollView>
+        <RuntimeRenderer
+          page={activePage}
+          variables={state.variables}
+          hiddenComponentIds={state.hiddenComponentIds}
+          onComponentPress={onComponentPress}
+          onInputChange={onInputChange}
+          canvasBackgroundColor="#FFFFFF"
+        />
       </SafeAreaView>
     </GestureHandlerRootView>
   );

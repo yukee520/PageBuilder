@@ -144,14 +144,15 @@ export default function DraggableComponent({
     );
     setLive(next);
     setDbg(`DRAG x=${(next.x * 100).toFixed(0)}%`);
-    onChangeRef.current(componentRef.current.id, next);
   }, []);
 
   const handleDragEnd = useCallback((): void => {
     isGesturingRef.current = false;
-    const current = { ...dragBaseRef.current };
+    setLive(prev => {
+      onChangeEndRef.current?.(componentRef.current.id, prev);
+      return prev;
+    });
     setDbg('DRAG END');
-    onChangeEndRef.current?.(componentRef.current.id, current);
   }, []);
 
   const handleResizeBegin = useCallback((): void => {
@@ -213,18 +214,18 @@ export default function DraggableComponent({
       const next = { x: nx, y: ny, width: nw, height: nh };
       setLive(next);
       setDbg(`RESIZE w=${(nw * 100).toFixed(0)}% h=${(nh * 100).toFixed(0)}%`);
-      onChangeRef.current(componentRef.current.id, next);
     },
     [],
   );
 
   const handleResizeEnd = useCallback((): void => {
-  isGesturingRef.current = false;
-  console.log('[resize] END, base still', resizeBaseRef.current, 'component now', componentRef.current);
-  const current = { ...resizeBaseRef.current };
-  setDbg('RESIZE END');
-  onChangeEndRef.current?.(componentRef.current.id, current);
-}, []);
+    isGesturingRef.current = false;
+    setLive(prev => {
+      onChangeEndRef.current?.(componentRef.current.id, prev);
+      return prev;
+    });
+    setDbg('RESIZE END');
+  }, []);
 
   const dragGesture = useMemo(
     () =>
@@ -379,14 +380,6 @@ export default function DraggableComponent({
         }}
       >
         <Text style={{ color: '#FFF', fontSize: 9 }}>{dbg}</Text>
-<Text style={{ color: '#0F0', fontSize: 9 }}>
-  store: w={(component.width * 100).toFixed(0)}% h=
-  {(component.height * 100).toFixed(0)}%
-</Text>
-<Text style={{ color: '#FF0', fontSize: 9 }}>
-  live:  w={(live.width * 100).toFixed(0)}% h=
-  {(live.height * 100).toFixed(0)}%
-</Text>
       </View>
 
       {editable ? (

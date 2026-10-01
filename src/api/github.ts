@@ -43,6 +43,15 @@ export interface GithubRun {
   updated_at: string;
 }
 
+export interface GithubFileEntry {
+  name: string;
+  path: string;
+  sha: string;
+  size: number;
+  type: 'file' | 'dir' | 'symlink' | 'submodule';
+  download_url: string | null;
+}
+
 export class GithubApiError extends Error {
   status: number | null;
   constructor(message: string, status: number | null = null) {
@@ -52,16 +61,21 @@ export class GithubApiError extends Error {
   }
 }
 
-function createClient(token: string): AxiosInstance {
+function createClient(token: string | null): AxiosInstance {
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'Content-Type': 'application/json',
+  };
+
+  if (token && token.trim().length > 0) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   const client = axios.create({
     baseURL: GITHUB_API,
     timeout: 30000,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'Content-Type': 'application/json',
-    },
+    headers,
   });
 
   client.interceptors.response.use(
@@ -75,10 +89,10 @@ function createClient(token: string): AxiosInstance {
           'Invalid or expired GitHub token. Please update it in Settings.';
       } else if (status === 403) {
         message =
-          'GitHub rejected the request. Your token may lack required scopes (repo, workflow).';
+          'GitHub rejected the request. Your token may lack required scopes, or you hit a rate limit.';
       } else if (status === 404) {
         message =
-          'Not found on GitHub. The repository or resource may have been deleted.';
+          'Not found on GitHub. The repository or resource may not exist.';
       } else if (status === 422) {
         message =
           'GitHub could not process the request. The repository name may already exist.';
@@ -279,4 +293,70 @@ export async function findLatestApkUrl(
     if (apk) return apk.browser_download_url;
   }
   return null;
+}
+
+export async function listRepoContents(
+  token: string | null,
+  owner: string,
+  repo: string,
+  path: string = '',
+  branch?: string,
+): Promise<GithubFileEntry[]> {
+  const client = createClient(token);
+  const encodedPath = path ? `/${encodeURIComponent(path)}` : '';
+  try {
+    const res = await client.get<GithubFileEntry[] | GithubFileEntry>(
+      `/repos/${owner}/${repo}/contents${encodedPath}`,
+      { params: branch ? { ref: branch } : undefined },
+    );
+    if (Array.isArray(res.data)) return res.data;
+    return [res.data];
+  } catch (err) {
+    if (err instanceof GithubApiError && err.status === 404) {
+      throw new GithubApiError(
+        `Repository "${owner}/${repo}" not found, or the path is empty.`,
+        404,
+      );
+    }
+    throw err;
+  }
+}
+
+const AUDIO_EXTENSIONS = ['.mp3', '.m4a', '.wav', '.ogg', '.aac', '.flac'];
+
+export function isAudioFile(name: string): boolean {
+  const lower = name.toLowerCase();
+  return AUDIO_EXTENSIONS.some(ext => lower.endsWith(ext));
+}
+
+export interface RepoAudioFile {
+  name: string;
+  title: string;
+  path: string;
+  downloadUrl: string;
+  size: number;
+}
+
+export async function listRepoAudioFiles(
+  token: string | null,
+  owner: string,
+  repo: string,
+  branch?: string,
+): Promise<RepoAudioFile[]> {
+  const entries = await listRepoContents(token, owner, repo, '', branch);
+  const audioFiles: RepoAudioFile[] = [];
+
+  for (const entry of entries) {
+    if (entry.type === 'file' && isAudioFile(entry.name) && entry.download_url) {
+      audioFiles.push({
+        name: entry.name,
+        title: entry.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+        path: entry.path,
+        downloadUrl: entry.download_url,
+        size: entry.size,
+      });
+    }
+  }
+
+  return audioFiles.sort((a, b) => a.name.localeCompare(b.name));
 }

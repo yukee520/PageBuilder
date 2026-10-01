@@ -393,7 +393,20 @@ export default function ComponentRenderer({
 
   const isButton = component.type === 'button';
   const isInput = component.type === 'input';
-  const interactive = !isButton && !isInput && onPress !== undefined;
+  const isImageWithActions =
+    component.type === 'image' && component.actions.length > 0;
+  const isTextWithActions =
+    component.type === 'text' && component.actions.length > 0;
+  const isVideoWithActions = component.type === 'video';
+
+  const interactive =
+    !isButton &&
+    !isInput &&
+    onPress !== undefined &&
+    (isImageWithActions || isTextWithActions || isVideoWithActions ||
+      component.type === 'spacer' ||
+      component.type === 'divider' ||
+      component.type === 'row');
 
   if (interactive) {
     return (

@@ -1,8 +1,8 @@
-
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   View,
@@ -10,6 +10,12 @@ import {
 } from 'react-native';
 import type { PageComponent, SizePreset } from '../../src/types/component';
 import type { Page } from '../../src/types/project';
+import {
+  pauseSound,
+  playUrl,
+  stopSound,
+  type SoundInstance,
+} from './MusicPlayer';
 
 export interface RuntimeRendererProps {
   page: Page;
@@ -318,9 +324,223 @@ function renderComponent(
       );
     }
 
+    case 'music':
+      return (
+        <MusicListRenderer
+          component={component}
+          scale={scale}
+        />
+      );
+
     default:
       return null;
   }
+}
+
+interface MusicListRendererProps {
+  component: Extract<PageComponent, { type: 'music' }>;
+  scale: number;
+}
+
+function MusicListRenderer({
+  component,
+  scale,
+}: MusicListRendererProps): React.ReactElement {
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const soundRef = useRef<SoundInstance>(null);
+  const currentIndexRef = useRef<number>(-1);
+
+  const stopCurrent = useCallback((): void => {
+    if (soundRef.current) {
+      stopSound(soundRef.current);
+      soundRef.current = null;
+    }
+    currentIndexRef.current = -1;
+    setPlayingId(null);
+  }, []);
+
+  const playIndex = useCallback(
+    (index: number): void => {
+      const track = component.tracks[index];
+      if (!track || !track.url) {
+        setPlayingId(null);
+        return;
+      }
+
+      if (soundRef.current) {
+        stopSound(soundRef.current);
+        soundRef.current = null;
+      }
+
+      currentIndexRef.current = index;
+      setPlayingId(track.id);
+
+      soundRef.current = playUrl(track.url, {
+        onFinish: () => {
+          const nextIndex = index + 1;
+          if (nextIndex < component.tracks.length) {
+            playIndex(nextIndex);
+          } else {
+            playIndex(0);
+          }
+        },
+        onError: () => {
+          soundRef.current = null;
+          setPlayingId(null);
+        },
+      });
+    },
+    [component.tracks],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (soundRef.current) {
+        stopSound(soundRef.current);
+        soundRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (component.autoplay && component.tracks.length > 0 && playingId === null) {
+      playIndex(0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleTrackPress = useCallback(
+    (trackId: string): void => {
+      const index = component.tracks.findIndex(t => t.id === trackId);
+      if (index < 0) return;
+
+      if (playingId === trackId) {
+        if (soundRef.current) {
+          pauseSound(soundRef.current);
+        }
+        setPlayingId(null);
+        return;
+      }
+
+      if (soundRef.current) {
+        stopSound(soundRef.current);
+        soundRef.current = null;
+      }
+      playIndex(index);
+    },
+    [component.tracks, playIndex, playingId],
+  );
+
+  if (component.tracks.length === 0) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderWidth: 1,
+          borderStyle: 'dashed',
+          borderColor: '#E2E8F0',
+          borderRadius: 10 * scale,
+          backgroundColor: '#FFFFFF',
+        }}
+      >
+        <Text style={{ color: '#64748B', fontSize: 11 * scale }}>
+          No tracks
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+        borderColor: '#E2E8F0',
+        borderWidth: 1,
+        borderRadius: 10 * scale,
+        overflow: 'hidden',
+      }}
+    >
+      <ScrollView
+        style={{ flex: 1 }}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator={false}
+      >
+        {component.tracks.map((track, index) => {
+          const isPlaying = playingId === track.id;
+          return (
+            <Pressable
+              key={track.id}
+              onPress={() => handleTrackPress(track.id)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 10 * scale,
+                paddingVertical: 9 * scale,
+                borderTopWidth: index === 0 ? 0 : 1,
+                borderTopColor: '#E2E8F0',
+                backgroundColor: isPlaying ? '#E0EDFF' : 'transparent',
+              }}
+              accessibilityRole="button"
+            >
+              <View
+                style={{
+                  width: 26 * scale,
+                  height: 26 * scale,
+                  borderRadius: 13 * scale,
+                  backgroundColor: isPlaying ? '#2563EB' : '#E2E8F0',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 10 * scale,
+                }}
+              >
+                <Text
+                  style={{
+                    color: isPlaying ? '#FFFFFF' : '#0F172A',
+                    fontSize: 11 * scale,
+                    fontWeight: '700',
+                  }}
+                >
+                  {isPlaying ? '❚❚' : '▶'}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    color: '#0F172A',
+                    fontSize: 13 * scale,
+                    fontWeight: '600',
+                  }}
+                  numberOfLines={1}
+                >
+                  {track.title || 'Untitled'}
+                </Text>
+                {component.showArtist && track.artist ? (
+                  <Text
+                    style={{
+                      color: '#64748B',
+                      fontSize: 11 * scale,
+                      marginTop: 1 * scale,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {track.artist}
+                  </Text>
+                ) : null}
+              </View>
+              {isPlaying ? (
+                <Text style={{ color: '#2563EB', fontSize: 14 * scale }}>
+                  ♪
+                </Text>
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
 }
 
 export default function RuntimeRenderer({

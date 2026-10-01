@@ -1,5 +1,9 @@
 import type { InteractionAction } from '@/types/action';
-import type { ComponentType, PageComponent } from '@/types/component';
+import type {
+  ComponentType,
+  MusicTrack,
+  PageComponent,
+} from '@/types/component';
 import type { Page, PageType, Project } from '@/types/project';
 import { PROJECT_FILE_VERSION } from '@/types/project';
 import {
@@ -75,6 +79,16 @@ function findDropPosition(
   return {
     x: Math.max(0, Math.min(x, 1 - width)),
     y: Math.max(0, Math.min(y, 1 - height)),
+  };
+}
+
+export function createMusicTrack(overrides?: Partial<MusicTrack>): MusicTrack {
+  const id = generateComponentId();
+  return {
+    id,
+    title: overrides?.title ?? 'Untitled track',
+    artist: overrides?.artist ?? '',
+    url: overrides?.url ?? '',
   };
 }
 
@@ -158,6 +172,14 @@ export function createComponent(
         type: 'input',
         placeholder: 'Enter text',
         variableKey: generateVariableKey(),
+      };
+    case 'music':
+      return {
+        ...base,
+        type: 'music',
+        tracks: [],
+        showArtist: true,
+        autoplay: false,
       };
     default: {
       const _exhaustive: never = type;

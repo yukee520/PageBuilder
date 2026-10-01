@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import type { PageComponent } from '@/types/component';
@@ -50,8 +50,6 @@ export default function DraggableComponent({
   onRequestEdit,
   children,
 }: DraggableComponentProps): React.ReactElement {
-  const [dbg, setDbg] = useState<string>('idle');
-
   const componentRef = useRef<PageComponent>(component);
   componentRef.current = component;
 
@@ -127,7 +125,6 @@ export default function DraggableComponent({
       height: componentRef.current.height,
     };
     isGesturingRef.current = true;
-    setDbg('DRAG START');
   }, []);
 
   const handleDragUpdate = useCallback((dxPx: number, dyPx: number): void => {
@@ -143,7 +140,6 @@ export default function DraggableComponent({
       base.height,
     );
     setLive(next);
-    setDbg(`DRAG x=${(next.x * 100).toFixed(0)}%`);
   }, []);
 
   const handleDragEnd = useCallback((): void => {
@@ -152,7 +148,6 @@ export default function DraggableComponent({
       onChangeEndRef.current?.(componentRef.current.id, prev);
       return prev;
     });
-    setDbg('DRAG END');
   }, []);
 
   const handleResizeBegin = useCallback((): void => {
@@ -165,7 +160,6 @@ export default function DraggableComponent({
       height: componentRef.current.height,
     };
     isGesturingRef.current = true;
-    setDbg('RESIZE START');
   }, []);
 
   const handleResizeUpdate = useCallback(
@@ -213,7 +207,6 @@ export default function DraggableComponent({
 
       const next = { x: nx, y: ny, width: nw, height: nh };
       setLive(next);
-      setDbg(`RESIZE w=${(nw * 100).toFixed(0)}% h=${(nh * 100).toFixed(0)}%`);
     },
     [],
   );
@@ -224,7 +217,6 @@ export default function DraggableComponent({
       onChangeEndRef.current?.(componentRef.current.id, prev);
       return prev;
     });
-    setDbg('RESIZE END');
   }, []);
 
   const dragGesture = useMemo(
@@ -366,22 +358,6 @@ export default function DraggableComponent({
       }}
       pointerEvents="box-none"
     >
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          top: -22,
-          left: 0,
-          backgroundColor: 'rgba(0,0,0,0.75)',
-          paddingHorizontal: 4,
-          paddingVertical: 1,
-          borderRadius: 3,
-          zIndex: 9999,
-        }}
-      >
-        <Text style={{ color: '#FFF', fontSize: 9 }}>{dbg}</Text>
-      </View>
-
       {editable ? (
         <GestureDetector gesture={dragGesture}>
           <View style={{ flex: 1 }} collapsable={false}>

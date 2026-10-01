@@ -2,6 +2,7 @@ import React from 'react';
 import {
   Image,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   View,
@@ -13,6 +14,8 @@ import type {
   DividerComponent,
   ImageComponent,
   InputComponent,
+  MusicComponent,
+  MusicTrack,
   PageComponent,
   RowComponent,
   SizePreset,
@@ -29,6 +32,8 @@ export interface ComponentRendererProps {
   onInputChange?: (value: string) => void;
   inputValue?: string;
   editable?: boolean;
+  playingTrackId?: string | null;
+  onMusicTrackPress?: (track: MusicTrack) => void;
 }
 
 function fontSizeFor(size: SizePreset): number {
@@ -320,6 +325,137 @@ function renderRow(
   );
 }
 
+function renderMusic(
+  c: MusicComponent,
+  colors: ReturnType<typeof useTheme>['colors'],
+  scale: number,
+  playingTrackId: string | null | undefined,
+  onTrackPress: ((track: MusicTrack) => void) | undefined,
+  editable: boolean,
+): React.ReactElement {
+  if (c.tracks.length === 0) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderWidth: 1,
+          borderStyle: 'dashed',
+          borderColor: colors.border,
+          borderRadius: 10 * scale,
+          backgroundColor: colors.card,
+        }}
+      >
+        <Ionicons
+          name="musical-notes-outline"
+          size={22 * scale}
+          color={colors.muted}
+        />
+        <Text
+          style={{
+            color: colors.muted,
+            fontSize: 11 * scale,
+            marginTop: 4 * scale,
+          }}
+        >
+          No tracks yet
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 10 * scale,
+        overflow: 'hidden',
+      }}
+    >
+      <ScrollView
+        style={{ flex: 1 }}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator={false}
+      >
+        {c.tracks.map((track, index) => {
+          const isPlaying = playingTrackId === track.id;
+          return (
+            <Pressable
+              key={track.id}
+              onPress={() => {
+                if (editable) return;
+                onTrackPress?.(track);
+              }}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 10 * scale,
+                paddingVertical: 9 * scale,
+                borderTopWidth: index === 0 ? 0 : 1,
+                borderTopColor: colors.border,
+                backgroundColor: isPlaying ? '#E0EDFF' : 'transparent',
+              }}
+            >
+              <View
+                style={{
+                  width: 26 * scale,
+                  height: 26 * scale,
+                  borderRadius: 13 * scale,
+                  backgroundColor: isPlaying ? colors.primary : colors.border,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 10 * scale,
+                }}
+              >
+                <Ionicons
+                  name={isPlaying ? 'pause' : 'play'}
+                  size={13 * scale}
+                  color={isPlaying ? '#FFFFFF' : colors.text}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontSize: 13 * scale,
+                    fontWeight: '600',
+                  }}
+                  numberOfLines={1}
+                >
+                  {track.title || 'Untitled'}
+                </Text>
+                {c.showArtist && track.artist ? (
+                  <Text
+                    style={{
+                      color: colors.muted,
+                      fontSize: 11 * scale,
+                      marginTop: 1 * scale,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {track.artist}
+                  </Text>
+                ) : null}
+              </View>
+              {isPlaying ? (
+                <Ionicons
+                  name="volume-medium-outline"
+                  size={16 * scale}
+                  color={colors.primary}
+                />
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
 function ChildRenderer({
   component,
   scale,
@@ -352,6 +488,8 @@ export default function ComponentRenderer({
   onInputChange,
   inputValue,
   editable = false,
+  playingTrackId,
+  onMusicTrackPress,
 }: ComponentRendererProps): React.ReactElement | null {
   const { colors } = useTheme();
 
@@ -384,6 +522,15 @@ export default function ComponentRenderer({
         );
       case 'row':
         return renderRow(component, colors, scale);
+      case 'music':
+        return renderMusic(
+          component,
+          colors,
+          scale,
+          playingTrackId,
+          onMusicTrackPress,
+          editable,
+        );
       default:
         return null;
     }
@@ -393,6 +540,7 @@ export default function ComponentRenderer({
 
   const isButton = component.type === 'button';
   const isInput = component.type === 'input';
+  const isMusic = component.type === 'music';
   const isImageWithActions =
     component.type === 'image' && component.actions.length > 0;
   const isTextWithActions =
@@ -402,8 +550,11 @@ export default function ComponentRenderer({
   const interactive =
     !isButton &&
     !isInput &&
+    !isMusic &&
     onPress !== undefined &&
-    (isImageWithActions || isTextWithActions || isVideoWithActions ||
+    (isImageWithActions ||
+      isTextWithActions ||
+      isVideoWithActions ||
       component.type === 'spacer' ||
       component.type === 'divider' ||
       component.type === 'row');

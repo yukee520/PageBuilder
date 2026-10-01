@@ -5,7 +5,6 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
-const RUNTIME_ROOT = path.join(ROOT, 'runtime');
 const OUT_FILE = path.join(ROOT, 'src', 'services', 'runtimeSource.ts');
 
 const FILES_TO_EMBED = [
@@ -21,6 +20,10 @@ const FILES_TO_EMBED = [
   {
     sourcePath: 'runtime/src/onboardingStorage.ts',
     targetPath: 'runtime/src/onboardingStorage.ts',
+  },
+  {
+    sourcePath: 'runtime/src/MusicPlayer.ts',
+    targetPath: 'runtime/src/MusicPlayer.ts',
   },
   { sourcePath: 'src/types/action.ts', targetPath: 'src/types/action.ts' },
   {

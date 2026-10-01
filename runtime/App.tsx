@@ -21,20 +21,22 @@ import {
   saveProgress,
   type OnboardingProgress,
 } from './src/onboardingStorage';
+import type { PageComponent } from '../src/types/component';
 import type { Project } from '../src/types/project';
+import projectEnvelope from '../project.json';
 
-const PROJECT_URL = 'project.json';
+interface ProjectEnvelope {
+  version: number;
+  project: Project;
+}
 
-async function loadProject(): Promise<Project> {
-  const response = await fetch(PROJECT_URL);
-  if (!response.ok) {
-    throw new Error(`Could not load project.json (status ${response.status})`);
-  }
-  const data = (await response.json()) as Project;
-  if (!data || !Array.isArray(data.pages) || data.pages.length === 0) {
+function readProject(): Project {
+  const envelope = projectEnvelope as unknown as ProjectEnvelope;
+  const project = envelope?.project;
+  if (!project || !Array.isArray(project.pages) || project.pages.length === 0) {
     throw new Error('project.json is empty or malformed.');
   }
-  return data;
+  return project;
 }
 
 export default function App(): React.ReactElement {
@@ -62,7 +64,7 @@ export default function App(): React.ReactElement {
     let cancelled = false;
     void (async () => {
       try {
-        const loaded = await loadProject();
+        const loaded = readProject();
         if (cancelled) return;
 
         const progress = await loadProgress(loaded.id);
@@ -102,7 +104,7 @@ export default function App(): React.ReactElement {
   }, [project, state.activePageId]);
 
   const onComponentPress = useCallback(
-    (component: import('../src/types/component').PageComponent): void => {
+    (component: PageComponent): void => {
       if (!project) return;
       if (component.actions.length === 0) return;
       for (const action of component.actions) {

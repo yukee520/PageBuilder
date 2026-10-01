@@ -50,23 +50,24 @@ export default function PreviewScreen(): React.ReactElement {
   const history = usePreviewStore(s => s.history);
   const variables = usePreviewStore(s => s.variables);
   const hiddenComponentIds = usePreviewStore(s => s.hiddenComponentIds);
+  const onboardingProgress = usePreviewStore(s => s.onboardingProgress);
   const init = usePreviewStore(s => s.init);
   const goToPage = usePreviewStore(s => s.goToPage);
   const goBack = usePreviewStore(s => s.goBack);
   const setVariable = usePreviewStore(s => s.setVariable);
   const toggleHidden = usePreviewStore(s => s.toggleHidden);
+  const advanceOnboarding = usePreviewStore(s => s.advanceOnboarding);
+  const completeOnboarding = usePreviewStore(s => s.completeOnboarding);
+  const setOnboardingProgress = usePreviewStore(s => s.setOnboardingProgress);
   const reset = usePreviewStore(s => s.reset);
 
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!project) return;
-    const startId =
-      project.pages.find(p => p.id === project.startPageId)?.id ??
-      project.pages[0]?.id ??
-      null;
-    if (activePageId !== startId) {
-      init(startId);
+    const startId = project.pages[0]?.id ?? null;
+    if (activePageId === null) {
+      init(project, startId, false);
     }
   }, [project, init, activePageId]);
 
@@ -85,8 +86,26 @@ export default function PreviewScreen(): React.ReactElement {
     return project.pages[0] ?? null;
   }, [project, activePageId]);
 
+  const handleSimulateFreshInstall = useCallback((): void => {
+    if (!project) return;
+    setOnboardingProgress({
+      onboardingCompleted: false,
+      lastOnboardingPageId: null,
+      completedAt: null,
+    });
+    const firstOnboarding = project.pages.find(p => p.type === 'onboarding');
+    const fallback = project.pages[0]?.id ?? null;
+    init(project, firstOnboarding?.id ?? fallback, true);
+    Alert.alert(
+      'Preview reset',
+      'Simulating a fresh install. Onboarding pages will be shown again.',
+    );
+  }, [init, project, setOnboardingProgress]);
+
   const executeAction = useCallback(
     (action: InteractionAction): void => {
+      if (!project) return;
+
       switch (action.type) {
         case 'navigate':
           if (action.pageId) {
@@ -127,9 +146,23 @@ export default function PreviewScreen(): React.ReactElement {
           }
           break;
         }
+        case 'nextOnboarding':
+          advanceOnboarding(project);
+          break;
+        case 'completeOnboarding':
+          completeOnboarding(project);
+          break;
       }
     },
-    [goBack, goToPage, setVariable, toggleHidden],
+    [
+      advanceOnboarding,
+      completeOnboarding,
+      goBack,
+      goToPage,
+      project,
+      setVariable,
+      toggleHidden,
+    ],
   );
 
   const handleComponentPress = useCallback(
@@ -152,16 +185,6 @@ export default function PreviewScreen(): React.ReactElement {
     },
     [activePage, setVariable],
   );
-
-  const handleReset = useCallback((): void => {
-    reset();
-    if (!project) return;
-    const startId =
-      project.pages.find(p => p.id === project.startPageId)?.id ??
-      project.pages[0]?.id ??
-      null;
-    init(startId);
-  }, [init, project, reset]);
 
   if (!projectId) {
     return (
@@ -225,6 +248,10 @@ export default function PreviewScreen(): React.ReactElement {
     );
   }
 
+  const onboardingStatus = onboardingProgress.onboardingCompleted
+    ? 'onboarding done'
+    : 'onboarding active';
+
   return (
     <SafeAreaView
       className="flex-1 bg-background dark:bg-dark-background"
@@ -232,12 +259,12 @@ export default function PreviewScreen(): React.ReactElement {
     >
       <ScreenHeader
         title={`Preview · ${activePage.title}`}
-        subtitle={project.name}
+        subtitle={`${project.name} · ${onboardingStatus}`}
         rightActions={[
           {
             icon: 'refresh-outline',
-            onPress: handleReset,
-            accessibilityLabel: 'Reset preview',
+            onPress: handleSimulateFreshInstall,
+            accessibilityLabel: 'Simulate fresh install',
           },
         ]}
       />

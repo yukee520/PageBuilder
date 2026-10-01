@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "project": {
+    "id": "prj_placeholder",
+    "name": "Placeholder Project",
+    "packageName": "com.pagebuilder.placeholder",
+    "version": "1.0.0",
+    "startPageId": "pg_placeholder",
+    "pages": [
+      {
+        "id": "pg_placeholder",
+        "title": "Home",
+        "type": "main",
+        "components": []
+      }
+    ],
+    "createdAt": 0,
+    "updatedAt": 0
+  }
+}

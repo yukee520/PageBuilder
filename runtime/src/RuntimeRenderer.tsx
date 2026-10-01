@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState } from 'react';
 import {
   Image,
@@ -79,8 +80,8 @@ function renderComponent(
   const { scale } = ctx;
 
   switch (component.type) {
-    case 'text':
-      return (
+    case 'text': {
+      const textInner = (
         <View
           style={{
             flex: 1,
@@ -102,27 +103,24 @@ function renderComponent(
         </View>
       );
 
+      if (component.actions.length > 0) {
+        return (
+          <Pressable
+            onPress={() => ctx.onComponentPress(component)}
+            style={{ flex: 1 }}
+          >
+            {textInner}
+          </Pressable>
+        );
+      }
+      return textInner;
+    }
+
     case 'image': {
       const radius = component.rounded ? 12 * scale : 0;
       const mode = component.backgroundMode ? 'cover' : 'contain';
-      if (!component.uri) {
-        return (
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: '#E2E8F0',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: radius,
-            }}
-          >
-            <Text style={{ color: '#64748B', fontSize: 11 * scale }}>
-              No image
-            </Text>
-          </View>
-        );
-      }
-      return (
+
+      const imageInner = component.uri ? (
         <Image
           source={{ uri: component.uri }}
           style={{
@@ -133,7 +131,34 @@ function renderComponent(
           }}
           resizeMode={mode}
         />
+      ) : (
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: '#E2E8F0',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: radius,
+          }}
+        >
+          <Text style={{ color: '#64748B', fontSize: 11 * scale }}>
+            No image
+          </Text>
+        </View>
       );
+
+      if (component.actions.length > 0) {
+        return (
+          <Pressable
+            onPress={() => ctx.onComponentPress(component)}
+            style={{ flex: 1 }}
+            accessibilityRole="button"
+          >
+            {imageInner}
+          </Pressable>
+        );
+      }
+      return imageInner;
     }
 
     case 'video':

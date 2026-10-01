@@ -1,9 +1,12 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Image,
+  Modal,
   Pressable,
+  ScrollView,
   Switch,
   Text,
   View,
@@ -19,8 +22,14 @@ import Card from '@/components/Card';
 import Input from '@/components/Input';
 import ErrorState from '@/components/ErrorState';
 import { useProjectStore } from '@/store/useProjectStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { useTheme } from '@/hooks/useTheme';
 import { useImagePicker } from '@/hooks/useImagePicker';
+import {
+  GithubApiError,
+  listRepoAudioFiles,
+  type RepoAudioFile,
+} from '@/api/github';
 import type { ActionType, InteractionAction } from '@/types/action';
 import { ACTION_TYPE_ICONS, ACTION_TYPE_LABELS } from '@/types/action';
 import type {
@@ -29,6 +38,8 @@ import type {
   HorizontalAlign,
   ImageComponent,
   InputComponent,
+  MusicComponent,
+  MusicTrack,
   PageComponent,
   SizePreset,
   SpacerComponent,
@@ -36,6 +47,7 @@ import type {
   VideoComponent,
 } from '@/types/component';
 import type { RootStackParamList } from '@/navigation/types';
+import { generateComponentId } from '@/utils/id';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type Rt = RouteProp<RootStackParamList, 'ComponentEdit'>;
@@ -83,7 +95,13 @@ export default function ComponentEditScreen(): React.ReactElement {
   const addAction = useProjectStore(s => s.addAction);
   const removeAction = useProjectStore(s => s.removeAction);
 
+  const githubToken = useSettingsStore(s => s.githubToken);
+
   const [showActionPicker, setShowActionPicker] = useState<boolean>(false);
+  const [showTrackEditor, setShowTrackEditor] = useState<MusicTrack | null>(
+    null,
+  );
+  const [showRepoBrowser, setShowRepoBrowser] = useState<boolean>(false);
 
   const page = useMemo(
     () => project?.pages.find(p => p.id === pageId) ?? null,
@@ -194,6 +212,88 @@ export default function ComponentEditScreen(): React.ReactElement {
     [component, patch],
   );
 
+  const handleAddTrack = useCallback((): void => {
+    if (!component || component.type !== 'music') return;
+    const newTrack: MusicTrack = {
+      id: generateComponentId(),
+      title: 'New track',
+      artist: '',
+      url: '',
+    };
+    patch({
+      tracks: [...component.tracks, newTrack],
+    } as Partial<MusicComponent>);
+    setShowTrackEditor(newTrack);
+  }, [component, patch]);
+
+  const handleUpdateTrack = useCallback(
+    (trackId: string, updates: Partial<MusicTrack>): void => {
+      if (!component || component.type !== 'music') return;
+      patch({
+        tracks: component.tracks.map(t =>
+          t.id === trackId ? { ...t, ...updates } : t,
+        ),
+      } as Partial<MusicComponent>);
+    },
+    [component, patch],
+  );
+
+  const handleRemoveTrack = useCallback(
+    (trackId: string): void => {
+      if (!component || component.type !== 'music') return;
+      Alert.alert('Remove track?', 'This track will be removed.', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            patch({
+              tracks: component.tracks.filter(t => t.id !== trackId),
+            } as Partial<MusicComponent>);
+          },
+        },
+      ]);
+    },
+    [component, patch],
+  );
+
+  const handleMoveTrack = useCallback(
+    (trackId: string, direction: 'up' | 'down'): void => {
+      if (!component || component.type !== 'music') return;
+      const tracks = [...component.tracks];
+      const index = tracks.findIndex(t => t.id === trackId);
+      if (index < 0) return;
+      const target = direction === 'up' ? index - 1 : index + 1;
+      if (target < 0 || target >= tracks.length) return;
+      const [moved] = tracks.splice(index, 1);
+      tracks.splice(target, 0, moved);
+      patch({ tracks } as Partial<MusicComponent>);
+    },
+    [component, patch],
+  );
+
+  const handleAddTracksFromRepo = useCallback(
+    (files: RepoAudioFile[]): void => {
+      if (!component || component.type !== 'music') return;
+      const newTracks: MusicTrack[] = files.map(f => ({
+        id: generateComponentId(),
+        title: f.title,
+        artist: '',
+        url: f.downloadUrl,
+      }));
+      patch({
+        tracks: [...component.tracks, ...newTracks],
+      } as Partial<MusicComponent>);
+      Toast.show({
+        type: 'success',
+        text1: `Added ${newTracks.length} track${
+          newTracks.length === 1 ? '' : 's'
+        }`,
+      });
+    },
+    [component, patch],
+  );
+
   if (!project || !page) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
@@ -215,7 +315,8 @@ export default function ComponentEditScreen(): React.ReactElement {
   const supportsActions =
     component.type !== 'input' &&
     component.type !== 'divider' &&
-    component.type !== 'spacer';
+    component.type !== 'spacer' &&
+    component.type !== 'music';
 
   return (
     <SafeAreaView
@@ -248,6 +349,136 @@ export default function ComponentEditScreen(): React.ReactElement {
               {renderContentEditor(component, patch, colors, picking, handlePickImage)}
             </Card>
 
+            {component.type === 'music' ? (
+              <Card className="mb-4">
+                <View className="flex-row items-center justify-between mb-3">
+                  <Text className="text-base font-semibold text-text dark:text-dark-text">
+                    Music tracks
+                  </Text>
+                  <Text className="text-xs text-muted dark:text-dark-muted">
+                    {component.tracks.length} track
+                    {component.tracks.length === 1 ? '' : 's'}
+                  </Text>
+                </View>
+
+                <View className="flex-row flex-wrap mb-3">
+                  <ToolbarButton
+                    icon="add-outline"
+                    label="Add track"
+                    onPress={handleAddTrack}
+                  />
+                  <ToolbarButton
+                    icon="logo-github"
+                    label="From GitHub repo"
+                    onPress={() => setShowRepoBrowser(true)}
+                  />
+                </View>
+
+                {component.tracks.length === 0 ? (
+                  <View className="bg-background dark:bg-dark-background rounded-xl p-4 items-center">
+                    <Ionicons
+                      name="musical-notes-outline"
+                      size={24}
+                      color={colors.muted}
+                    />
+                    <Text className="text-xs text-muted dark:text-dark-muted text-center mt-2">
+                      No tracks yet. Tap "Add track" to add a URL, or "From
+                      GitHub repo" to import MP3s.
+                    </Text>
+                  </View>
+                ) : (
+                  component.tracks.map((track, index) => (
+                    <View
+                      key={track.id}
+                      className="bg-background dark:bg-dark-background rounded-xl p-3 mb-2"
+                    >
+                      <View className="flex-row items-center mb-1">
+                        <Text className="text-xs font-bold text-muted dark:text-dark-muted w-6">
+                          {index + 1}.
+                        </Text>
+                        <Text
+                          className="text-sm font-semibold text-text dark:text-dark-text flex-1"
+                          numberOfLines={1}
+                        >
+                          {track.title || 'Untitled'}
+                        </Text>
+                        <Pressable
+                          onPress={() => setShowTrackEditor(track)}
+                          hitSlop={6}
+                          className="p-1.5"
+                        >
+                          <Ionicons
+                            name="create-outline"
+                            size={16}
+                            color={colors.primary}
+                          />
+                        </Pressable>
+                        <Pressable
+                          onPress={() => handleRemoveTrack(track.id)}
+                          hitSlop={6}
+                          className="p-1.5"
+                        >
+                          <Ionicons
+                            name="trash-outline"
+                            size={16}
+                            color={colors.danger}
+                          />
+                        </Pressable>
+                      </View>
+                      {track.artist ? (
+                        <Text
+                          className="text-xs text-muted dark:text-dark-muted ml-6 mb-1"
+                          numberOfLines={1}
+                        >
+                          {track.artist}
+                        </Text>
+                      ) : null}
+                      <Text
+                        className="text-[10px] text-muted dark:text-dark-muted ml-6"
+                        numberOfLines={1}
+                      >
+                        {track.url || '(no URL)'}
+                      </Text>
+                      <View className="flex-row ml-6 mt-2">
+                        <Pressable
+                          onPress={() => handleMoveTrack(track.id, 'up')}
+                          disabled={index === 0}
+                          className={[
+                            'px-2 py-1 rounded mr-2 border',
+                            index === 0
+                              ? 'opacity-30 border-border dark:border-dark-border'
+                              : 'border-border dark:border-dark-border active:bg-card dark:active:bg-dark-card',
+                          ].join(' ')}
+                        >
+                          <Ionicons
+                            name="arrow-up-outline"
+                            size={12}
+                            color={colors.text}
+                          />
+                        </Pressable>
+                        <Pressable
+                          onPress={() => handleMoveTrack(track.id, 'down')}
+                          disabled={index === component.tracks.length - 1}
+                          className={[
+                            'px-2 py-1 rounded border',
+                            index === component.tracks.length - 1
+                              ? 'opacity-30 border-border dark:border-dark-border'
+                              : 'border-border dark:border-dark-border active:bg-card dark:active:bg-dark-card',
+                          ].join(' ')}
+                        >
+                          <Ionicons
+                            name="arrow-down-outline"
+                            size={12}
+                            color={colors.text}
+                          />
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </Card>
+            ) : null}
+
             <Card className="mb-4">
               <Text className="text-base font-semibold text-text dark:text-dark-text mb-3">
                 Appearance
@@ -271,9 +502,7 @@ export default function ComponentEditScreen(): React.ReactElement {
                   <AlignButton
                     icon="arrow-back-outline"
                     label="Left"
-                    active={
-                      Math.abs(component.x) < 0.02
-                    }
+                    active={Math.abs(component.x) < 0.02}
                     onPress={() => handleAlign('left')}
                   />
                   <AlignButton
@@ -435,6 +664,29 @@ export default function ComponentEditScreen(): React.ReactElement {
           </Pressable>
         </Pressable>
       ) : null}
+
+      {showTrackEditor ? (
+        <TrackEditorModal
+          track={showTrackEditor}
+          onClose={() => setShowTrackEditor(null)}
+          onSave={updates => {
+            handleUpdateTrack(showTrackEditor.id, updates);
+            setShowTrackEditor(null);
+            Toast.show({ type: 'success', text1: 'Track saved' });
+          }}
+        />
+      ) : null}
+
+      {showRepoBrowser ? (
+        <RepoBrowserModal
+          initialToken={githubToken}
+          onClose={() => setShowRepoBrowser(false)}
+          onImport={files => {
+            handleAddTracksFromRepo(files);
+            setShowRepoBrowser(false);
+          }}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -499,7 +751,10 @@ function renderContentEditor(
               />
             </View>
           ) : (
-            <View className="mb-3 rounded-xl border border-dashed border-border dark:border-dark-border items-center justify-center bg-background dark:bg-dark-background" style={{ height: 140 }}>
+            <View
+              className="mb-3 rounded-xl border border-dashed border-border dark:border-dark-border items-center justify-center bg-background dark:bg-dark-background"
+              style={{ height: 140 }}
+            >
               <Ionicons name="image-outline" size={32} color={colors.muted} />
               <Text className="text-xs text-muted dark:text-dark-muted mt-2">
                 No image selected
@@ -508,7 +763,13 @@ function renderContentEditor(
           )}
 
           <Button
-            label={picking ? 'Opening gallery…' : c.uri ? 'Replace image' : 'Pick from gallery'}
+            label={
+              picking
+                ? 'Opening gallery…'
+                : c.uri
+                ? 'Replace image'
+                : 'Pick from gallery'
+            }
             icon="images-outline"
             onPress={onPickImage}
             loading={picking}
@@ -604,9 +865,7 @@ function renderContentEditor(
                   <Text
                     className={[
                       'text-xs font-semibold capitalize',
-                      active
-                        ? 'text-white'
-                        : 'text-text dark:text-dark-text',
+                      active ? 'text-white' : 'text-text dark:text-dark-text',
                     ].join(' ')}
                   >
                     {v}
@@ -664,6 +923,15 @@ function renderContentEditor(
           />
         </>
       );
+
+    case 'music':
+      return (
+        <Text className="text-xs text-muted dark:text-dark-muted">
+          Manage tracks in the "Music tracks" section below. Each track plays
+          when tapped. Tracks advance automatically, and loop back to the first
+          after the last one finishes.
+        </Text>
+      );
   }
 }
 
@@ -699,9 +967,7 @@ function renderAppearanceEditor(
                   <Text
                     className={[
                       'text-xs font-semibold capitalize',
-                      active
-                        ? 'text-white'
-                        : 'text-text dark:text-dark-text',
+                      active ? 'text-white' : 'text-text dark:text-dark-text',
                     ].join(' ')}
                   >
                     {s}
@@ -720,9 +986,7 @@ function renderAppearanceEditor(
               return (
                 <Pressable
                   key={a}
-                  onPress={() =>
-                    patch({ align: a } as Partial<TextComponent>)
-                  }
+                  onPress={() => patch({ align: a } as Partial<TextComponent>)}
                   className={[
                     'px-3 py-2 rounded-lg mr-2 border',
                     active
@@ -733,9 +997,7 @@ function renderAppearanceEditor(
                   <Text
                     className={[
                       'text-xs font-semibold capitalize',
-                      active
-                        ? 'text-white'
-                        : 'text-text dark:text-dark-text',
+                      active ? 'text-white' : 'text-text dark:text-dark-text',
                     ].join(' ')}
                   >
                     {a}
@@ -750,8 +1012,7 @@ function renderAppearanceEditor(
           </Text>
           <View className="flex-row flex-wrap mb-3">
             {TEXT_COLOR_PRESETS.map(preset => {
-              const active =
-                (c.color ?? null) === preset.value;
+              const active = (c.color ?? null) === preset.value;
               return (
                 <Pressable
                   key={preset.label}
@@ -768,9 +1029,7 @@ function renderAppearanceEditor(
                   <Text
                     className={[
                       'text-xs font-semibold',
-                      active
-                        ? 'text-white'
-                        : 'text-text dark:text-dark-text',
+                      active ? 'text-white' : 'text-text dark:text-dark-text',
                     ].join(' ')}
                   >
                     {preset.label}
@@ -916,6 +1175,46 @@ function renderAppearanceEditor(
         </>
       );
 
+    case 'music':
+      return (
+        <>
+          <View className="flex-row items-center justify-between mb-3">
+            <View className="flex-1 pr-3">
+              <Text className="text-sm text-text dark:text-dark-text">
+                Show artist name
+              </Text>
+              <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">
+                Displays the artist under each track title.
+              </Text>
+            </View>
+            <Switch
+              value={c.showArtist}
+              onValueChange={value =>
+                patch({ showArtist: value } as Partial<MusicComponent>)
+              }
+              trackColor={{ false: colors.border, true: colors.primary }}
+            />
+          </View>
+          <View className="flex-row items-center justify-between">
+            <View className="flex-1 pr-3">
+              <Text className="text-sm text-text dark:text-dark-text">
+                Autoplay first track
+              </Text>
+              <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">
+                Starts the first track when this page is opened.
+              </Text>
+            </View>
+            <Switch
+              value={c.autoplay}
+              onValueChange={value =>
+                patch({ autoplay: value } as Partial<MusicComponent>)
+              }
+              trackColor={{ false: colors.border, true: colors.primary }}
+            />
+          </View>
+        </>
+      );
+
     case 'row':
     case 'input':
       return (
@@ -961,5 +1260,342 @@ function AlignButton({
         {label}
       </Text>
     </Pressable>
+  );
+}
+
+interface ToolbarButtonProps {
+  icon: string;
+  label: string;
+  onPress: () => void;
+  danger?: boolean;
+}
+
+function ToolbarButton({
+  icon,
+  label,
+  onPress,
+  danger,
+}: ToolbarButtonProps): React.ReactElement {
+  const color = danger ? '#EF4444' : '#2563EB';
+  return (
+    <Pressable
+      onPress={onPress}
+      className="flex-row items-center px-3 py-2 rounded-lg bg-background dark:bg-dark-background mr-2 mb-2 active:opacity-70"
+      accessibilityRole="button"
+    >
+      <Ionicons name={icon} size={14} color={color} />
+      <Text className="text-xs font-semibold ml-1" style={{ color }}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+interface TrackEditorModalProps {
+  track: MusicTrack;
+  onClose: () => void;
+  onSave: (updates: Partial<MusicTrack>) => void;
+}
+
+function TrackEditorModal({
+  track,
+  onClose,
+  onSave,
+}: TrackEditorModalProps): React.ReactElement {
+  const [title, setTitle] = useState<string>(track.title);
+  const [artist, setArtist] = useState<string>(track.artist);
+  const [url, setUrl] = useState<string>(track.url);
+
+  const handleSave = (): void => {
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) {
+      Alert.alert('Missing URL', 'Please paste the MP3 URL for this track.');
+      return;
+    }
+    if (!/^https?:\/\//i.test(trimmedUrl)) {
+      Alert.alert(
+        'Invalid URL',
+        'The URL must start with http:// or https://.',
+      );
+      return;
+    }
+    onSave({
+      title: title.trim() || 'Untitled',
+      artist: artist.trim(),
+      url: trimmedUrl,
+    });
+  };
+
+  return (
+    <Modal
+      visible
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
+        <ScreenHeader
+          title="Track details"
+          onBack={onClose}
+          rightActions={[
+            {
+              icon: 'checkmark-outline',
+              onPress: handleSave,
+              accessibilityLabel: 'Save',
+            },
+          ]}
+        />
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+          <Card className="mb-4">
+            <Input
+              label="Title"
+              value={title}
+              onChangeText={setTitle}
+              placeholder="Song title"
+              containerClassName="mb-3"
+            />
+            <Input
+              label="Artist"
+              value={artist}
+              onChangeText={setArtist}
+              placeholder="Artist name (optional)"
+              containerClassName="mb-3"
+            />
+            <Input
+              label="Audio URL"
+              value={url}
+              onChangeText={setUrl}
+              placeholder="https://example.com/song.mp3"
+              autoCapitalize="none"
+              hint="Direct link to an MP3, M4A, WAV, or OGG file."
+            />
+          </Card>
+          <Button
+            label="Save track"
+            icon="checkmark-circle-outline"
+            onPress={handleSave}
+            fullWidth
+          />
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+interface RepoBrowserModalProps {
+  initialToken: string;
+  onClose: () => void;
+  onImport: (files: RepoAudioFile[]) => void;
+}
+
+function RepoBrowserModal({
+  initialToken,
+  onClose,
+  onImport,
+}: RepoBrowserModalProps): React.ReactElement {
+  const { colors } = useTheme();
+  const [repoInput, setRepoInput] = useState<string>('');
+  const [files, setFiles] = useState<RepoAudioFile[]>([]);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [searched, setSearched] = useState<boolean>(false);
+
+  const handleFetch = useCallback(async (): Promise<void> => {
+    const trimmed = repoInput.trim();
+    const match = trimmed.match(
+      /^(?:https?:\/\/github\.com\/)?([^/\s]+)\/([^/\s]+?)(?:\.git)?$/,
+    );
+    if (!match) {
+      Alert.alert(
+        'Invalid format',
+        'Enter the repository as "owner/repo" (for example: yukee520/my-music).',
+      );
+      return;
+    }
+    const [, owner, repo] = match;
+    setLoading(true);
+    setError(null);
+    setFiles([]);
+    setSelected({});
+    setSearched(false);
+    try {
+      const result = await listRepoAudioFiles(
+        initialToken || null,
+        owner,
+        repo,
+      );
+      setFiles(result);
+      setSearched(true);
+      if (result.length === 0) {
+        setError(
+          'No audio files found at the root of this repository. Supported formats: MP3, M4A, WAV, OGG, AAC, FLAC.',
+        );
+      } else {
+        const initialSelected: Record<string, boolean> = {};
+        for (const f of result) initialSelected[f.path] = true;
+        setSelected(initialSelected);
+      }
+    } catch (err) {
+      const message =
+        err instanceof GithubApiError
+          ? err.message
+          : err instanceof Error
+          ? err.message
+          : 'Could not load repository contents.';
+      setError(message);
+      setSearched(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [initialToken, repoInput]);
+
+  const toggleFile = useCallback((path: string): void => {
+    setSelected(prev => ({ ...prev, [path]: !prev[path] }));
+  }, []);
+
+  const selectedCount = Object.values(selected).filter(Boolean).length;
+
+  const handleImport = (): void => {
+    const chosen = files.filter(f => selected[f.path]);
+    if (chosen.length === 0) {
+      Alert.alert('Nothing selected', 'Select at least one track to import.');
+      return;
+    }
+    onImport(chosen);
+  };
+
+  return (
+    <Modal
+      visible
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
+        <ScreenHeader
+          title="Import from GitHub"
+          subtitle="Public repository, MP3 files at root"
+          onBack={onClose}
+          rightActions={[
+            {
+              icon: 'checkmark-outline',
+              onPress: handleImport,
+              accessibilityLabel: 'Import',
+              disabled: selectedCount === 0,
+            },
+          ]}
+        />
+        <View style={{ padding: 16 }}>
+          <Input
+            label="Repository"
+            value={repoInput}
+            onChangeText={setRepoInput}
+            placeholder="owner/repo (e.g., yukee520/my-music)"
+            autoCapitalize="none"
+            hint="Enter any public GitHub repo. Files must be at the repository root."
+            containerClassName="mb-3"
+          />
+          <Button
+            label={loading ? 'Loading…' : 'Browse files'}
+            icon="search-outline"
+            onPress={() => {
+              void handleFetch();
+            }}
+            loading={loading}
+            fullWidth
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          {loading ? (
+            <View className="flex-1 items-center justify-center">
+              <ActivityIndicator color={colors.primary} />
+              <Text className="text-xs text-muted dark:text-dark-muted mt-3">
+                Reading repository…
+              </Text>
+            </View>
+          ) : error ? (
+            <View className="px-6 pt-4">
+              <View className="bg-danger/10 dark:bg-danger/20 rounded-xl p-3">
+                <Text className="text-xs text-danger dark:text-danger">
+                  {error}
+                </Text>
+              </View>
+            </View>
+          ) : searched && files.length > 0 ? (
+            <FlatList
+              data={files}
+              keyExtractor={item => item.path}
+              contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+              renderItem={({ item }) => {
+                const isSelected = Boolean(selected[item.path]);
+                return (
+                  <Pressable
+                    onPress={() => toggleFile(item.path)}
+                    className={[
+                      'flex-row items-center rounded-xl p-3 mb-2 border',
+                      isSelected
+                        ? 'bg-primary/10 dark:bg-primary/20 border-primary'
+                        : 'bg-card dark:bg-dark-card border-border dark:border-dark-border',
+                    ].join(' ')}
+                  >
+                    <View
+                      className={[
+                        'w-5 h-5 rounded-md border-2 items-center justify-center mr-3',
+                        isSelected
+                          ? 'bg-primary border-primary'
+                          : 'border-border dark:border-dark-border',
+                      ].join(' ')}
+                    >
+                      {isSelected ? (
+                        <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                      ) : null}
+                    </View>
+                    <View className="flex-1">
+                      <Text
+                        className="text-sm font-semibold text-text dark:text-dark-text"
+                        numberOfLines={1}
+                      >
+                        {item.title}
+                      </Text>
+                      <Text
+                        className="text-[10px] text-muted dark:text-dark-muted mt-0.5"
+                        numberOfLines={1}
+                      >
+                        {item.name}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              }}
+              ListFooterComponent={
+                <View className="mt-4">
+                  <Button
+                    label={`Import ${selectedCount} track${
+                      selectedCount === 1 ? '' : 's'
+                    }`}
+                    icon="cloud-download-outline"
+                    onPress={handleImport}
+                    disabled={selectedCount === 0}
+                    fullWidth
+                  />
+                </View>
+              }
+            />
+          ) : (
+            <View className="flex-1 items-center justify-center px-6">
+              <Ionicons
+                name="logo-github"
+                size={40}
+                color={colors.muted}
+              />
+              <Text className="text-xs text-muted dark:text-dark-muted mt-3 text-center">
+                Enter a public GitHub repository and tap Browse files.
+              </Text>
+            </View>
+          )}
+        </View>
+      </SafeAreaView>
+    </Modal>
   );
 }

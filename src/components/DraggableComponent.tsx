@@ -250,8 +250,8 @@ export default function DraggableComponent({
   const blGesture = makeResizeGesture('bl');
   const brGesture = makeResizeGesture('br');
 
-  const left = layout.offsetX + live.x * layout.canvasWidth;
-  const top = layout.offsetY + live.y * layout.canvasHeight;
+  const left = live.x * layout.canvasWidth;
+  const top = live.y * layout.canvasHeight;
   const width = Math.max(live.width * layout.canvasWidth, 8);
   const height = Math.max(live.height * layout.canvasHeight, 8);
 

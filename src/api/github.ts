@@ -55,7 +55,7 @@ export class GithubApiError extends Error {
 function createClient(token: string): AxiosInstance {
   const client = axios.create({
     baseURL: GITHUB_API,
-    timeout: 20000,
+    timeout: 30000,
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/vnd.github+json',
@@ -71,13 +71,17 @@ function createClient(token: string): AxiosInstance {
       let message = 'GitHub request failed. Please check your network.';
 
       if (status === 401) {
-        message = 'Invalid or expired GitHub token. Please update it in Settings.';
+        message =
+          'Invalid or expired GitHub token. Please update it in Settings.';
       } else if (status === 403) {
-        message = 'GitHub rejected the request. Your token may lack required scopes (repo, workflow).';
+        message =
+          'GitHub rejected the request. Your token may lack required scopes (repo, workflow).';
       } else if (status === 404) {
-        message = 'Not found on GitHub. The repository or resource may have been deleted.';
+        message =
+          'Not found on GitHub. The repository or resource may have been deleted.';
       } else if (status === 422) {
-        message = 'GitHub could not process the request. The repository name may already exist.';
+        message =
+          'GitHub could not process the request. The repository name may already exist.';
       } else if (status !== null && status >= 500) {
         message = 'GitHub is currently unavailable. Please try again later.';
       } else if (error.code === 'ECONNABORTED') {
@@ -269,7 +273,9 @@ export async function findLatestApkUrl(
 ): Promise<string | null> {
   const releases = await listReleases(token, owner, repo, 5);
   for (const release of releases) {
-    const apk = release.assets.find(a => a.name.toLowerCase().endsWith('.apk'));
+    const apk = release.assets.find(a =>
+      a.name.toLowerCase().endsWith('.apk'),
+    );
     if (apk) return apk.browser_download_url;
   }
   return null;

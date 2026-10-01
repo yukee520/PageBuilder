@@ -55,7 +55,8 @@ export default function BuildScreen(): React.ReactElement {
   const [repoDraft, setRepoDraft] = useState<string>('');
 
   useEffect(() => {
-    const suggested = defaultRepoName || (project ? sanitizeRepoName(project.name) : '');
+    const suggested =
+      defaultRepoName || (project ? sanitizeRepoName(project.name) : '');
     setRepoDraft(suggested);
   }, [defaultRepoName, project]);
 
@@ -370,10 +371,11 @@ export default function BuildScreen(): React.ReactElement {
             How it works
           </Text>
           <Text className="text-xs text-muted dark:text-dark-muted leading-5">
-            PageBuilder uploads your project data to a GitHub repository created
-            from the React Native template. GitHub Actions then compiles a debug
-            APK and publishes it as a Release download. The whole process usually
-            takes 5–10 minutes.
+            PageBuilder creates a new GitHub repository from{' '}
+            {templateOwner}/{templateRepo}. It pushes your project data, the
+            runtime code, and an entry point into that repository. GitHub
+            Actions then compiles the debug APK and publishes it as a release.
+            The whole process usually takes 5–10 minutes.
           </Text>
         </Card>
       </ScrollView>

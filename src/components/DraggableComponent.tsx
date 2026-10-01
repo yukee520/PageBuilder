@@ -378,6 +378,14 @@ export default function DraggableComponent({
         }}
       >
         <Text style={{ color: '#FFF', fontSize: 9 }}>{dbg}</Text>
+<Text style={{ color: '#0F0', fontSize: 9 }}>
+  store: w={(component.width * 100).toFixed(0)}% h=
+  {(component.height * 100).toFixed(0)}%
+</Text>
+<Text style={{ color: '#FF0', fontSize: 9 }}>
+  live:  w={(live.width * 100).toFixed(0)}% h=
+  {(live.height * 100).toFixed(0)}%
+</Text>
       </View>
 
       {editable ? (

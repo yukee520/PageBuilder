@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   BuildConfig,
-  BuildPhase,
   BuildResult,
   BuildState,
 } from '@/types/build';
@@ -24,6 +23,7 @@ const REPO_INIT_WAIT_MS = 8000;
 
 export interface BuildFiles {
   projectJson: string;
+  projectName: string;
 }
 
 export interface StartBuildParams {
@@ -46,6 +46,56 @@ const initialState: BuildState = {
   result: null,
   error: null,
 };
+
+const GENERATED_BUILD_WORKFLOW = `name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build Debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: Show APK info
+        run: |
+          ls -lh android/app/build/outputs/apk/debug/
+          echo "Debug APK built successfully"
+`;
 
 function toBase64(value: string): string {
   const chars =
@@ -104,6 +154,13 @@ function validateProjectJson(json: string): void {
   }
 }
 
+function safeAppSlug(name: string): string {
+  const slug = name
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(0, 40);
+  return slug.length > 0 ? slug : 'App';
+}
+
 function buildCommitFiles(files: BuildFiles): CommitFile[] {
   const result: CommitFile[] = [];
 
@@ -113,10 +170,27 @@ function buildCommitFiles(files: BuildFiles): CommitFile[] {
     message: 'entry point',
   });
 
+  const appJson = {
+    name: safeAppSlug(files.projectName),
+    displayName: files.projectName,
+  };
+
+  result.push({
+    path: 'app.json',
+    contentBase64: toBase64(JSON.stringify(appJson, null, 2)),
+    message: 'app name',
+  });
+
   result.push({
     path: 'project.json',
     contentBase64: toBase64(files.projectJson),
     message: 'project data',
+  });
+
+  result.push({
+    path: '.github/workflows/build-apk.yml',
+    contentBase64: toBase64(GENERATED_BUILD_WORKFLOW),
+    message: 'debug build workflow',
   });
 
   for (const runtimeFile of RUNTIME_FILES) {
@@ -216,7 +290,7 @@ export function useBuild(): UseBuildResult {
               phase: 'completed',
               message: apkUrl
                 ? 'Build completed. APK is ready to download.'
-                : 'Build completed, but the APK is not yet published. Check the run on GitHub.',
+                : 'Build completed. Open the run on GitHub to download the APK artifact.',
               progress: 100,
               run: {
                 id: run.id,
@@ -352,7 +426,7 @@ export function useBuild(): UseBuildResult {
 
         update({
           phase: 'pushing-files',
-          message: 'Uploading project + runtime files',
+          message: 'Uploading project, app name, and workflow',
           progress: 35,
         });
 

@@ -107,6 +107,7 @@ export default function BuildScreen(): React.ReactElement {
       },
       files: {
         projectJson: JSON.stringify(project, null, 2),
+        projectName: project.name,
       },
     });
   }, [

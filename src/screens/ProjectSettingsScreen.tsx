@@ -2,7 +2,9 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
+  Modal,
   Pressable,
+  ScrollView,
   Text,
   View,
 } from 'react-native';
@@ -32,13 +34,14 @@ export default function ProjectSettingsScreen(): React.ReactElement {
   const route = useRoute<Rt>();
   const { projectId } = route.params;
   const { project, loading, error, reload, save } = useProject(projectId);
-  const setProject = useProjectStore(s => s.project);
   const storeSetProject = useProjectStore(s => s.setProject);
 
   const [name, setName] = useState<string>('');
   const [packageName, setPackageName] = useState<string>('');
   const [version, setVersion] = useState<string>('');
   const [saving, setSaving] = useState<boolean>(false);
+  const [renamingPage, setRenamingPage] = useState<Page | null>(null);
+  const [renameDraft, setRenameDraft] = useState<string>('');
 
   React.useEffect(() => {
     if (project) {
@@ -98,11 +101,50 @@ export default function ProjectSettingsScreen(): React.ReactElement {
       storeSetProject(next);
       Toast.show({
         type: 'success',
-        text1: type === 'onboarding' ? 'Set as onboarding page' : 'Set as main page',
+        text1:
+          type === 'onboarding' ? 'Set as onboarding page' : 'Set as main page',
       });
     },
     [project, save, storeSetProject],
   );
+
+  const handleOpenRename = useCallback((page: Page): void => {
+    setRenamingPage(page);
+    setRenameDraft(page.title);
+  }, []);
+
+  const handleCancelRename = useCallback((): void => {
+    setRenamingPage(null);
+    setRenameDraft('');
+  }, []);
+
+  const handleConfirmRename = useCallback(async (): Promise<void> => {
+    if (!project || !renamingPage) return;
+    const trimmed = renameDraft.trim();
+    if (!trimmed) {
+      Alert.alert('Page name cannot be empty');
+      return;
+    }
+    if (trimmed === renamingPage.title) {
+      handleCancelRename();
+      return;
+    }
+    const pages = project.pages.map(p =>
+      p.id === renamingPage.id ? { ...p, title: trimmed } : p,
+    );
+    const next = { ...project, pages, updatedAt: Date.now() };
+    await save(next);
+    storeSetProject(next);
+    Toast.show({ type: 'success', text1: 'Page renamed' });
+    handleCancelRename();
+  }, [
+    handleCancelRename,
+    project,
+    renameDraft,
+    renamingPage,
+    save,
+    storeSetProject,
+  ]);
 
   const handleDeletePage = useCallback(
     (page: Page): void => {
@@ -157,7 +199,8 @@ export default function ProjectSettingsScreen(): React.ReactElement {
               Toast.show({ type: 'success', text1: 'Project deleted' });
               navigation.popToTop();
             } catch (err) {
-              const msg = err instanceof Error ? err.message : 'Delete failed.';
+              const msg =
+                err instanceof Error ? err.message : 'Delete failed.';
               Toast.show({ type: 'error', text1: 'Error', text2: msg });
             }
           },
@@ -181,7 +224,10 @@ export default function ProjectSettingsScreen(): React.ReactElement {
   if (loading) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <ScreenHeader title="Project Settings" onBack={() => navigation.goBack()} />
+        <ScreenHeader
+          title="Project Settings"
+          onBack={() => navigation.goBack()}
+        />
         <LoadingState message="Loading project…" />
       </SafeAreaView>
     );
@@ -190,7 +236,10 @@ export default function ProjectSettingsScreen(): React.ReactElement {
   if (error || !project) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
-        <ScreenHeader title="Project Settings" onBack={() => navigation.goBack()} />
+        <ScreenHeader
+          title="Project Settings"
+          onBack={() => navigation.goBack()}
+        />
         <ErrorState
           message={error ?? 'Project not found.'}
           onRetry={() => {
@@ -303,19 +352,31 @@ export default function ProjectSettingsScreen(): React.ReactElement {
                     {index + 1}
                   </Text>
                 </View>
-                <View className="flex-1">
-                  <Text
-                    className="text-sm font-semibold text-text dark:text-dark-text"
-                    numberOfLines={1}
-                  >
-                    {item.title}
-                  </Text>
+                <Pressable
+                  onPress={() => handleOpenRename(item)}
+                  className="flex-1"
+                  hitSlop={6}
+                >
+                  <View className="flex-row items-center">
+                    <Text
+                      className="text-sm font-semibold text-text dark:text-dark-text"
+                      numberOfLines={1}
+                    >
+                      {item.title}
+                    </Text>
+                    <Ionicons
+                      name="create-outline"
+                      size={14}
+                      color="#94A3B8"
+                      style={{ marginLeft: 6 }}
+                    />
+                  </View>
                   <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">
                     {item.components.length} component
                     {item.components.length === 1 ? '' : 's'}
                     {isStart ? ' · Start page' : ''}
                   </Text>
-                </View>
+                </Pressable>
                 <Pressable
                   onPress={() => handleDeletePage(item)}
                   hitSlop={8}
@@ -383,7 +444,7 @@ export default function ProjectSettingsScreen(): React.ReactElement {
               </View>
 
               <Text className="text-[10px] text-muted dark:text-dark-muted">
-                Tap the badge to toggle Onboarding / Main
+                Tap title to rename · Tap badge to switch Onboarding / Main
               </Text>
             </View>
           );
@@ -400,6 +461,48 @@ export default function ProjectSettingsScreen(): React.ReactElement {
           </View>
         }
       />
+
+      <Modal
+        visible={renamingPage !== null}
+        animationType="slide"
+        transparent
+        onRequestClose={handleCancelRename}
+      >
+        <Pressable
+          onPress={handleCancelRename}
+          className="flex-1 bg-black/40 justify-center px-6"
+        >
+          <Pressable onPress={() => undefined}>
+            <View className="bg-card dark:bg-dark-card rounded-2xl p-4">
+              <Text className="text-base font-semibold text-text dark:text-dark-text mb-3">
+                Rename page
+              </Text>
+              <Input
+                value={renameDraft}
+                onChangeText={setRenameDraft}
+                placeholder="Page title"
+                autoFocus
+                containerClassName="mb-3"
+              />
+              <View className="flex-row justify-end">
+                <Button
+                  label="Cancel"
+                  variant="ghost"
+                  onPress={handleCancelRename}
+                />
+                <View className="w-2" />
+                <Button
+                  label="Rename"
+                  icon="checkmark-outline"
+                  onPress={() => {
+                    void handleConfirmRename();
+                  }}
+                />
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }

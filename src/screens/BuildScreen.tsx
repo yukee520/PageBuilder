@@ -31,18 +31,21 @@ type Rt = RouteProp<RootStackParamList, 'Build'>;
 export default function BuildScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Rt>();
-  const projectId = route.params?.projectId ?? '';
 
-  const { project, loading: projectLoading, error: projectError } = useProject(
-    projectId || null,
-  );
-  const setProject = useProjectStore(s => s.setProject);
+  const storeProject = useProjectStore(s => s.project);
+  const projectId = route.params?.projectId ?? storeProject?.id ?? '';
+
+  const {
+    project,
+    loading: projectLoading,
+    error: projectError,
+  } = useProject(projectId || null);
 
   useEffect(() => {
     if (project) {
-      setProject(project);
+      useProjectStore.getState().setProject(project);
     }
-  }, [project, setProject]);
+  }, [project]);
 
   const githubToken = useSettingsStore(s => s.githubToken);
   const defaultRepoName = useSettingsStore(s => s.defaultRepoName);
@@ -78,14 +81,8 @@ export default function BuildScreen(): React.ReactElement {
     if (!githubToken) {
       Alert.alert(
         'GitHub not connected',
-        'Add your Personal Access Token in Settings before building.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Open Settings',
-            onPress: () => navigation.navigate('Tabs'),
-          },
-        ],
+        'Add your Personal Access Token in the Settings tab before building.',
+        [{ text: 'OK' }],
       );
       return;
     }
@@ -115,7 +112,6 @@ export default function BuildScreen(): React.ReactElement {
   }, [
     githubToken,
     makeRepoPrivate,
-    navigation,
     project,
     repoDraft,
     setDefaultRepoName,
@@ -159,7 +155,24 @@ export default function BuildScreen(): React.ReactElement {
     });
   }, [state.result]);
 
-  if (projectId && projectLoading) {
+  if (!projectId) {
+    return (
+      <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
+        <ScreenHeader title="Build APK" onBack={() => navigation.goBack()} />
+        <View className="flex-1 items-center justify-center px-6">
+          <Ionicons name="hammer-outline" size={48} color="#94A3B8" />
+          <Text className="text-base font-semibold text-text dark:text-dark-text text-center mt-4">
+            No project selected
+          </Text>
+          <Text className="text-sm text-muted dark:text-dark-muted text-center mt-2">
+            Open a project first, then tap the hammer icon in the editor.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (projectLoading && !project) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
         <ScreenHeader title="Build APK" onBack={() => navigation.goBack()} />
@@ -172,7 +185,7 @@ export default function BuildScreen(): React.ReactElement {
     );
   }
 
-  if (projectId && (projectError || !project)) {
+  if (projectError && !project) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
         <ScreenHeader title="Build APK" onBack={() => navigation.goBack()} />
@@ -181,7 +194,7 @@ export default function BuildScreen(): React.ReactElement {
             Project not available
           </Text>
           <Text className="text-sm text-muted dark:text-dark-muted mt-2 text-center">
-            {projectError ?? 'The project could not be loaded.'}
+            {projectError}
           </Text>
         </View>
       </SafeAreaView>
@@ -195,7 +208,7 @@ export default function BuildScreen(): React.ReactElement {
     >
       <ScreenHeader
         title="Build APK"
-        subtitle={project ? project.name : 'No project selected'}
+        subtitle={project ? project.name : 'No project'}
         onBack={() => navigation.goBack()}
       />
 

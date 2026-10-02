@@ -36,6 +36,7 @@ const COMPONENT_TYPES: ComponentType[] = [
   'row',
   'spacer',
   'divider',
+  'music',
 ];
 
 const AUTOSAVE_DELAY_MS = 500;
@@ -158,6 +159,11 @@ export default function EditorScreen(): React.ReactElement {
   const handlePreviewTab = useCallback((): void => {
     saveNow();
     navigation.navigate('Preview', { projectId });
+  }, [navigation, projectId, saveNow]);
+
+  const handleOpenBuild = useCallback((): void => {
+    saveNow();
+    navigation.navigate('Build', { projectId });
   }, [navigation, projectId, saveNow]);
 
   const handleOpenProjectSettings = useCallback((): void => {
@@ -414,6 +420,11 @@ export default function EditorScreen(): React.ReactElement {
             icon: 'play-circle-outline',
             onPress: handlePreviewTab,
             accessibilityLabel: 'Open Preview tab',
+          },
+          {
+            icon: 'hammer-outline',
+            onPress: handleOpenBuild,
+            accessibilityLabel: 'Build APK',
           },
           {
             icon: 'settings-outline',

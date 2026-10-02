@@ -1,3 +1,4 @@
+
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
@@ -124,11 +125,11 @@ export default function SettingsScreen(): React.ReactElement {
   }, []);
 
   const openTemplateRepo = useCallback((): void => {
-    Linking.openURL(
-      `https://github.com/${templateOwner}/${templateRepo}`,
-    ).catch(() => {
-      Alert.alert('Could not open GitHub in your browser.');
-    });
+    Linking.openURL(`https://github.com/${templateOwner}/${templateRepo}`).catch(
+      () => {
+        Alert.alert('Could not open GitHub in your browser.');
+      },
+    );
   }, [templateOwner, templateRepo]);
 
   return (
@@ -203,7 +204,11 @@ export default function SettingsScreen(): React.ReactElement {
         <Card className="mb-4">
           <View className="flex-row items-center mb-3">
             <View className="w-9 h-9 rounded-lg bg-primary/10 dark:bg-primary/20 items-center justify-center mr-3">
-              <Ionicons name="git-branch-outline" size={20} color={colors.primary} />
+              <Ionicons
+                name="git-branch-outline"
+                size={20}
+                color={colors.primary}
+              />
             </View>
             <View className="flex-1">
               <Text className="text-base font-semibold text-text dark:text-dark-text">
@@ -271,19 +276,29 @@ export default function SettingsScreen(): React.ReactElement {
         </Card>
 
         <Card className="mb-4">
-          <Text className="text-base font-semibold text-text dark:text-dark-text mb-2">
-            Build history
+          <View className="flex-row items-center mb-2">
+            <View className="w-9 h-9 rounded-lg bg-primary/10 dark:bg-primary/20 items-center justify-center mr-3">
+              <Ionicons
+                name="hammer-outline"
+                size={18}
+                color={colors.primary}
+              />
+            </View>
+            <Text className="text-base font-semibold text-text dark:text-dark-text">
+              Building an APK
+            </Text>
+          </View>
+          <Text className="text-xs text-muted dark:text-dark-muted leading-5 mb-3">
+            Open a project in the editor, then tap the hammer icon in the
+            top-right corner to build an APK for that project.
           </Text>
-          <Text className="text-xs text-muted dark:text-dark-muted mb-3">
-            View recent build runs and download completed APKs.
-          </Text>
-          <Button
-            label="Open Build screen"
-            icon="hammer-outline"
-            variant="secondary"
-            fullWidth
-            onPress={() => navigation.navigate('Build', { projectId: '' })}
-          />
+          <View className="bg-background dark:bg-dark-background rounded-xl p-3 flex-row items-center">
+            <Ionicons name="information-circle-outline" size={16} color={colors.primary} />
+            <Text className="text-xs text-muted dark:text-dark-muted ml-2 flex-1">
+              If you don't have a project open, open one from the Projects tab
+              first.
+            </Text>
+          </View>
         </Card>
 
         <Card>

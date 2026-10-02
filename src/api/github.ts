@@ -74,7 +74,7 @@ function createClient(token: string | null): AxiosInstance {
 
   const client = axios.create({
     baseURL: GITHUB_API,
-    timeout: 30000,
+    timeout: 60000,
     headers,
   });
 
@@ -88,18 +88,29 @@ function createClient(token: string | null): AxiosInstance {
         message =
           'Invalid or expired GitHub token. Please update it in Settings.';
       } else if (status === 403) {
-        message =
-          'GitHub rejected the request. Your token may lack required scopes, or you hit a rate limit.';
+        const rateRemaining =
+          error.response?.headers?.['x-ratelimit-remaining'];
+        if (rateRemaining === '0') {
+          message =
+            'GitHub API rate limit reached. Please wait about an hour and try again.';
+        } else {
+          message =
+            'GitHub rejected the request. Your token may lack required scopes (repo, workflow).';
+        }
       } else if (status === 404) {
         message =
           'Not found on GitHub. The repository or resource may not exist.';
+      } else if (status === 409) {
+        message =
+          'Repository is empty (no commits yet). Please wait a few seconds and try again.';
       } else if (status === 422) {
         message =
-          'GitHub could not process the request. The repository name may already exist.';
+          'GitHub could not process the request. The repository name may already exist, or a file is too large.';
       } else if (status !== null && status >= 500) {
         message = 'GitHub is currently unavailable. Please try again later.';
       } else if (error.code === 'ECONNABORTED') {
-        message = 'Request timed out. Please try again.';
+        message =
+          'Request timed out. The upload may be too large — please retry.';
       }
 
       return Promise.reject(new GithubApiError(message, status));
@@ -162,51 +173,13 @@ export async function createRepoFromTemplate(
   return res.data;
 }
 
-export interface PutFileParams {
-  path: string;
-  contentBase64: string;
-  message: string;
-  sha?: string | null;
-}
-
-export async function getFileSha(
+export async function deleteRepo(
   token: string,
   owner: string,
   repo: string,
-  path: string,
-  branch?: string,
-): Promise<string | null> {
-  const client = createClient(token);
-  try {
-    const res = await client.get<{ sha: string }>(
-      `/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`,
-      { params: branch ? { ref: branch } : undefined },
-    );
-    return res.data.sha;
-  } catch (err) {
-    if (err instanceof GithubApiError && err.status === 404) return null;
-    throw err;
-  }
-}
-
-export async function putFile(
-  token: string,
-  owner: string,
-  repo: string,
-  branch: string,
-  params: PutFileParams,
 ): Promise<void> {
   const client = createClient(token);
-  const body: Record<string, unknown> = {
-    message: params.message,
-    content: params.contentBase64,
-    branch,
-  };
-  if (params.sha) body.sha = params.sha;
-  await client.put(
-    `/repos/${owner}/${repo}/contents/${encodeURIComponent(params.path)}`,
-    body,
-  );
+  await client.delete(`/repos/${owner}/${repo}`);
 }
 
 export interface CommitFile {
@@ -215,23 +188,92 @@ export interface CommitFile {
   message?: string;
 }
 
-export async function putMultipleFiles(
+interface GitRef {
+  ref: string;
+  object: { sha: string; type: string; url: string };
+}
+
+interface GitCommit {
+  sha: string;
+  tree: { sha: string };
+}
+
+interface GitBlob {
+  sha: string;
+}
+
+interface GitTree {
+  sha: string;
+}
+
+interface CreatedTreeEntry {
+  path: string;
+  mode: '100644';
+  type: 'blob';
+  sha: string;
+}
+
+export async function putFilesInOneCommit(
   token: string,
   owner: string,
   repo: string,
   branch: string,
   files: CommitFile[],
-  defaultMessage: string,
-): Promise<void> {
+  commitMessage: string,
+): Promise<{ commitSha: string }> {
+  const client = createClient(token);
+
+  const refRes = await client.get<GitRef>(
+    `/repos/${owner}/${repo}/git/ref/heads/${branch}`,
+  );
+  const parentCommitSha = refRes.data.object.sha;
+
+  const parentCommitRes = await client.get<GitCommit>(
+    `/repos/${owner}/${repo}/git/commits/${parentCommitSha}`,
+  );
+  const parentTreeSha = parentCommitRes.data.tree.sha;
+
+  const treeEntries: CreatedTreeEntry[] = [];
+
   for (const file of files) {
-    const sha = await getFileSha(token, owner, repo, file.path, branch);
-    await putFile(token, owner, repo, branch, {
+    const blobRes = await client.post<GitBlob>(
+      `/repos/${owner}/${repo}/git/blobs`,
+      {
+        content: file.contentBase64,
+        encoding: 'base64',
+      },
+    );
+    treeEntries.push({
       path: file.path,
-      contentBase64: file.contentBase64,
-      message: file.message ?? defaultMessage,
-      sha,
+      mode: '100644',
+      type: 'blob',
+      sha: blobRes.data.sha,
     });
   }
+
+  const treeRes = await client.post<GitTree>(
+    `/repos/${owner}/${repo}/git/trees`,
+    {
+      base_tree: parentTreeSha,
+      tree: treeEntries,
+    },
+  );
+
+  const newCommitRes = await client.post<GitCommit>(
+    `/repos/${owner}/${repo}/git/commits`,
+    {
+      message: commitMessage,
+      tree: treeRes.data.sha,
+      parents: [parentCommitSha],
+    },
+  );
+
+  await client.patch(`/repos/${owner}/${repo}/git/refs/heads/${branch}`, {
+    sha: newCommitRes.data.sha,
+    force: false,
+  });
+
+  return { commitSha: newCommitRes.data.sha };
 }
 
 export async function listWorkflowRuns(

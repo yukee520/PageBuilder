@@ -11,7 +11,7 @@ import {
   getWorkflowRun,
   GithubApiError,
   listWorkflowRuns,
-  putMultipleFiles,
+  putFilesInOneCommit,
   repoExists,
   validateToken,
   type CommitFile,
@@ -79,28 +79,51 @@ function toBase64(value: string): string {
   return result;
 }
 
+function validateProjectJson(json: string): void {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new Error('project.json is not valid JSON. Please try again.');
+  }
+
+  const envelope = parsed as { project?: { pages?: unknown[]; name?: string } };
+  const project = envelope.project;
+  if (!project) {
+    throw new Error(
+      'project.json has no "project" field. The project may be corrupted.',
+    );
+  }
+  if (!Array.isArray(project.pages) || project.pages.length === 0) {
+    throw new Error(
+      'project.json has no pages. Add at least one page before building.',
+    );
+  }
+  if (!project.name) {
+    throw new Error('project.json has no name.');
+  }
+}
+
 function buildCommitFiles(files: BuildFiles): CommitFile[] {
   const result: CommitFile[] = [];
 
   result.push({
     path: 'App.tsx',
-    contentBase64: toBase64(
-      "export { default } from './runtime/App';\n",
-    ),
-    message: 'chore: entry point from PageBuilder',
+    contentBase64: toBase64("export { default } from './runtime/App';\n"),
+    message: 'entry point',
   });
 
   result.push({
     path: 'project.json',
     contentBase64: toBase64(files.projectJson),
-    message: 'chore: project data from PageBuilder',
+    message: 'project data',
   });
 
   for (const runtimeFile of RUNTIME_FILES) {
     result.push({
       path: runtimeFile.path,
       contentBase64: runtimeFile.base64,
-      message: `chore: runtime ${runtimeFile.path}`,
+      message: `runtime ${runtimeFile.path}`,
     });
   }
 
@@ -279,10 +302,18 @@ export function useBuild(): UseBuildResult {
       try {
         update({
           phase: 'creating-repo',
-          message: 'Verifying GitHub account',
-          progress: 5,
+          message: 'Validating project',
+          progress: 3,
           error: null,
           result: null,
+        });
+
+        validateProjectJson(files.projectJson);
+
+        update({
+          phase: 'creating-repo',
+          message: 'Verifying GitHub account',
+          progress: 5,
         });
 
         const user = await validateToken(config.token);
@@ -327,13 +358,13 @@ export function useBuild(): UseBuildResult {
 
         const commitFiles = buildCommitFiles(files);
 
-        await putMultipleFiles(
+        await putFilesInOneCommit(
           config.token,
           owner,
           config.repoName,
           'main',
           commitFiles,
-          'chore: update from PageBuilder',
+          'build: update from PageBuilder',
         );
 
         update({
@@ -345,7 +376,7 @@ export function useBuild(): UseBuildResult {
         const startedAt = Date.now();
         let runId: number | null = null;
 
-        for (let attempt = 0; attempt < 15; attempt += 1) {
+        for (let attempt = 0; attempt < 20; attempt += 1) {
           if (cancelledRef.current) return;
           const runs = await listWorkflowRuns(
             config.token,
@@ -353,21 +384,10 @@ export function useBuild(): UseBuildResult {
             config.repoName,
             { perPage: 5 },
           );
-          const newest = runs.find(
-            r =>
-              new Date(r.created_at).getTime() >= startedAt - 20000 &&
-              r.status !== 'completed',
+          const candidate = runs.find(
+            r => new Date(r.created_at).getTime() >= startedAt - 15000,
           );
-          const fallback = runs[0];
-          const candidate = newest ?? fallback;
-          if (candidate && candidate.status !== 'completed') {
-            runId = candidate.id;
-            break;
-          }
-          if (
-            candidate &&
-            new Date(candidate.created_at).getTime() >= startedAt - 20000
-          ) {
+          if (candidate) {
             runId = candidate.id;
             break;
           }

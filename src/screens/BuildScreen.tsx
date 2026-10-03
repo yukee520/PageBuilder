@@ -97,19 +97,23 @@ export default function BuildScreen(): React.ReactElement {
     setDefaultRepoName(cleaned);
     setRepoDraft(cleaned);
 
-    await start({
-      config: {
-        token: githubToken,
-        repoName: cleaned,
-        isPrivate: makeRepoPrivate,
-        templateOwner,
-        templateRepo,
-      },
-      files: {
-        projectJson: JSON.stringify(project, null, 2),
-        projectName: project.name,
-      },
-    });
+ await start({
+  config: {
+    token: githubToken,
+    repoName: cleaned,
+    isPrivate: makeRepoPrivate,
+    templateOwner,
+    templateRepo,
+  },
+  files: {
+    projectJson: JSON.stringify(
+      { version: 2, project },
+      null,
+      2,
+    ),
+    projectName: project.name,
+  },
+});
   }, [
     githubToken,
     makeRepoPrivate,

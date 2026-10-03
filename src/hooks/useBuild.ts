@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   BuildConfig,
@@ -191,10 +192,7 @@ function replacePackageInKotlin(
   newPackage: string,
   appName?: string,
 ): string {
-  let result = source.replace(
-    /^package\s+[\w.]+/m,
-    `package ${newPackage}`,
-  );
+  let result = source.replace(/^package\s+[\w.]+/m, `package ${newPackage}`);
   if (appName) {
     result = result.replace(
       /getMainComponentName\(\):\s*String\s*=\s*"[^"]*"/,
@@ -204,10 +202,7 @@ function replacePackageInKotlin(
   return result;
 }
 
-function replacePackageInGradle(
-  source: string,
-  newPackage: string,
-): string {
+function replacePackageInGradle(source: string, newPackage: string): string {
   let result = source.replace(
     /namespace\s+"[^"]+"/,
     `namespace "${newPackage}"`,
@@ -217,6 +212,34 @@ function replacePackageInGradle(
     `applicationId "${newPackage}"`,
   );
   return result;
+}
+
+async function readWithRetry(
+  token: string,
+  owner: string,
+  repo: string,
+  path: string,
+  attempts: number = 8,
+  delayMs: number = 3000,
+): Promise<string> {
+  let lastError: unknown = null;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const content = await getFileContent(token, owner, repo, path, 'main');
+      if (content !== null) return content;
+      lastError = new Error(`File "${path}" was empty.`);
+    } catch (err) {
+      lastError = err;
+    }
+    await new Promise<void>(resolve => {
+      setTimeout(resolve, delayMs);
+    });
+  }
+  const message =
+    lastError instanceof Error
+      ? lastError.message
+      : `Could not read "${path}" from the repository after ${attempts} attempts.`;
+  throw new Error(message);
 }
 
 async function buildCommitActions(
@@ -235,14 +258,12 @@ async function buildCommitActions(
     '/',
   )}`;
 
-  // 1. App.tsx — 1-line entry
   actions.push({
     path: 'App.tsx',
     contentBase64: toBase64("export { default } from './runtime/App';\n"),
     message: 'entry point',
   });
 
-  // 2. app.json — display name and slug
   actions.push({
     path: 'app.json',
     contentBase64: toBase64(
@@ -251,7 +272,6 @@ async function buildCommitActions(
     message: 'app name',
   });
 
-  // 3. index.js — register with the SAME name as app.json
   actions.push({
     path: 'index.js',
     contentBase64: toBase64(
@@ -264,7 +284,6 @@ async function buildCommitActions(
     message: 'js entry',
   });
 
-  // 4. strings.xml — Android launcher name
   const stringsXml =
     '<?xml version="1.0" encoding="utf-8"?>\n' +
     '<resources>\n' +
@@ -276,21 +295,18 @@ async function buildCommitActions(
     message: 'launcher name',
   });
 
-  // 5. project.json — the actual pages
   actions.push({
     path: 'project.json',
     contentBase64: toBase64(files.projectJson),
     message: 'project data',
   });
 
-  // 6. workflow — our version (release build, no keystore needed)
   actions.push({
     path: '.github/workflows/build-apk.yml',
     contentBase64: toBase64(GENERATED_BUILD_WORKFLOW),
     message: 'build workflow',
   });
 
-  // 7. runtime + type files
   for (const runtimeFile of RUNTIME_FILES) {
     actions.push({
       path: runtimeFile.path,
@@ -299,32 +315,22 @@ async function buildCommitActions(
     });
   }
 
-  // 8. package name rewrite (only if it differs from template)
   if (newPackage !== TEMPLATE_PACKAGE) {
     const mainActivityPath = `${TEMPLATE_PACKAGE_PATH}/MainActivity.kt`;
     const mainApplicationPath = `${TEMPLATE_PACKAGE_PATH}/MainApplication.kt`;
 
-    const mainActivitySource = await getFileContent(
+    const mainActivitySource = await readWithRetry(
       token,
       owner,
       repo,
       mainActivityPath,
-      'main',
     );
-    const mainApplicationSource = await getFileContent(
+    const mainApplicationSource = await readWithRetry(
       token,
       owner,
       repo,
       mainApplicationPath,
-      'main',
     );
-
-    if (!mainActivitySource || !mainApplicationSource) {
-      throw new GithubApiError(
-        'Could not read the template MainActivity/MainApplication from the repository. Please try again.',
-        null,
-      );
-    }
 
     const newMainActivity = replacePackageInKotlin(
       mainActivitySource,
@@ -351,22 +357,8 @@ async function buildCommitActions(
     actions.push({ path: mainActivityPath, delete: true });
     actions.push({ path: mainApplicationPath, delete: true });
 
-    // Update build.gradle too
     const gradlePath = 'android/app/build.gradle';
-    const gradleSource = await getFileContent(
-      token,
-      owner,
-      repo,
-      gradlePath,
-      'main',
-    );
-
-    if (!gradleSource) {
-      throw new GithubApiError(
-        'Could not read android/app/build.gradle. Please try again.',
-        null,
-      );
-    }
+    const gradleSource = await readWithRetry(token, owner, repo, gradlePath);
 
     const newGradle = replacePackageInGradle(gradleSource, newPackage);
     actions.push({
@@ -375,27 +367,23 @@ async function buildCommitActions(
       message: 'build.gradle package',
     });
   } else {
-    // Even when package is same, still fix the MainActivity app name
     const mainActivityPath = `${TEMPLATE_PACKAGE_PATH}/MainActivity.kt`;
-    const mainActivitySource = await getFileContent(
+    const mainActivitySource = await readWithRetry(
       token,
       owner,
       repo,
       mainActivityPath,
-      'main',
     );
-    if (mainActivitySource) {
-      const patched = mainActivitySource.replace(
-        /getMainComponentName\(\):\s*String\s*=\s*"[^"]*"/,
-        `getMainComponentName(): String = "${appSlug}"`,
-      );
-      if (patched !== mainActivitySource) {
-        actions.push({
-          path: mainActivityPath,
-          contentBase64: toBase64(patched),
-          message: 'fix app name in MainActivity',
-        });
-      }
+    const patched = mainActivitySource.replace(
+      /getMainComponentName\(\):\s*String\s*=\s*"[^"]*"/,
+      `getMainComponentName(): String = "${appSlug}"`,
+    );
+    if (patched !== mainActivitySource) {
+      actions.push({
+        path: mainActivityPath,
+        contentBase64: toBase64(patched),
+        message: 'fix app name in MainActivity',
+      });
     }
   }
 
@@ -631,8 +619,8 @@ export function useBuild(): UseBuildResult {
 
         update({
           phase: 'pushing-files',
-          message: 'Uploading project files',
-          progress: 40,
+          message: 'Reading template files',
+          progress: 35,
         });
 
         const actions = await buildCommitActions(
@@ -641,6 +629,12 @@ export function useBuild(): UseBuildResult {
           config.repoName,
           files,
         );
+
+        update({
+          phase: 'pushing-files',
+          message: 'Uploading project files',
+          progress: 45,
+        });
 
         await putFilesInOneCommit(
           config.token,

@@ -355,8 +355,15 @@ export async function listRepoContents(
     return [res.data];
   } catch (err) {
     if (err instanceof GithubApiError && err.status === 404) {
+      const hasToken = Boolean(token && token.trim().length > 0);
+      if (!hasToken) {
+        throw new GithubApiError(
+          `Could not read "${owner}/${repo}". If the repository is private, add a GitHub token in Settings. If it's public, check the owner/repo spelling.`,
+          404,
+        );
+      }
       throw new GithubApiError(
-        `Repository "${owner}/${repo}" not found, or the path is empty.`,
+        `Repository "${owner}/${repo}" has no files yet, or it doesn't exist. Upload at least one file (e.g., an MP3) to the root of the repository, then try again.`,
         404,
       );
     }

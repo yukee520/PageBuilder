@@ -78,23 +78,23 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Build Debug APK
+      - name: Build Release APK
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: app-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
           retention-days: 30
 
       - name: Show APK info
         run: |
-          ls -lh android/app/build/outputs/apk/debug/
-          echo "Debug APK built successfully"
+          ls -lh android/app/build/outputs/apk/release/
+          echo "Release APK built successfully"
 `;
 
 function toBase64(value: string): string {
@@ -155,10 +155,17 @@ function validateProjectJson(json: string): void {
 }
 
 function safeAppSlug(name: string): string {
-  const slug = name
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .slice(0, 40);
+  const slug = name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 40);
   return slug.length > 0 ? slug : 'App';
+}
+
+function xmlEscape(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 function buildCommitFiles(files: BuildFiles): CommitFile[] {
@@ -181,6 +188,18 @@ function buildCommitFiles(files: BuildFiles): CommitFile[] {
     message: 'app name',
   });
 
+  const stringsXml =
+    '<?xml version="1.0" encoding="utf-8"?>\n' +
+    '<resources>\n' +
+    `    <string name="app_name">${xmlEscape(files.projectName)}</string>\n` +
+    '</resources>\n';
+
+  result.push({
+    path: 'android/app/src/main/res/values/strings.xml',
+    contentBase64: toBase64(stringsXml),
+    message: 'app display name (strings.xml)',
+  });
+
   result.push({
     path: 'project.json',
     contentBase64: toBase64(files.projectJson),
@@ -190,7 +209,7 @@ function buildCommitFiles(files: BuildFiles): CommitFile[] {
   result.push({
     path: '.github/workflows/build-apk.yml',
     contentBase64: toBase64(GENERATED_BUILD_WORKFLOW),
-    message: 'debug build workflow',
+    message: 'release build workflow',
   });
 
   for (const runtimeFile of RUNTIME_FILES) {

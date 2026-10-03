@@ -1,5 +1,10 @@
-import React, { useMemo, useState } from 'react';
-import { View, type LayoutChangeEvent } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AppState,
+  View,
+  type AppStateStatus,
+  type LayoutChangeEvent,
+} from 'react-native';
 import type { Page } from '@/types/project';
 import type { PageComponent } from '@/types/component';
 import ComponentRenderer from '@/components/ComponentRenderer';
@@ -21,6 +26,8 @@ export interface PageViewRendererProps {
   inputValues?: Record<string, string>;
   hiddenComponentIds?: Record<string, boolean>;
   canvasBackgroundColor?: string;
+  playingTrackId?: string | null;
+  onMusicTrackPress?: (trackId: string) => void;
 }
 
 export default function PageViewRenderer({
@@ -35,23 +42,57 @@ export default function PageViewRenderer({
   inputValues,
   hiddenComponentIds,
   canvasBackgroundColor,
+  playingTrackId,
+  onMusicTrackPress,
 }: PageViewRendererProps): React.ReactElement {
   const [containerSize, setContainerSize] = useState<{
     width: number;
     height: number;
   }>({ width: 0, height: 0 });
 
+  const layoutRef = useRef<CanvasLayout | null>(null);
+  const containerRef = useRef<View | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+
   const layout: CanvasLayout | null = useMemo(() => {
     if (containerSize.width === 0 || containerSize.height === 0) return null;
-    return computeCanvasLayout(containerSize.width, containerSize.height);
+    const next = computeCanvasLayout(containerSize.width, containerSize.height);
+    layoutRef.current = next;
+    return next;
   }, [containerSize]);
 
-  const handleLayout = (e: LayoutChangeEvent): void => {
+  const handleLayout = useCallback((e: LayoutChangeEvent): void => {
     const { width, height } = e.nativeEvent.layout;
-    if (width !== containerSize.width || height !== containerSize.height) {
-      setContainerSize({ width, height });
-    }
-  };
+    setContainerSize(prev => {
+      if (prev.width === width && prev.height === height) return prev;
+      return { width, height };
+    });
+  }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextState => {
+      const prevState = appStateRef.current;
+      appStateRef.current = nextState;
+      if (
+        (prevState === 'background' || prevState === 'inactive') &&
+        nextState === 'active'
+      ) {
+        containerRef.current?.measure?.(
+          (_x, _y, width, height) => {
+            if (width > 0 && height > 0) {
+              setContainerSize(prev => {
+                if (prev.width === width && prev.height === height) return prev;
+                return { width, height };
+              });
+            }
+          },
+        );
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
   const sortedComponents = useMemo(() => {
     return [...page.components].sort((a, b) => a.zIndex - b.zIndex);
@@ -59,6 +100,7 @@ export default function PageViewRenderer({
 
   return (
     <View
+      ref={containerRef}
       onLayout={handleLayout}
       style={{ flex: 1, overflow: 'visible' }}
     >
@@ -109,6 +151,12 @@ export default function PageViewRenderer({
                       : undefined
                   }
                   editable={!editable}
+                  playingTrackId={playingTrackId}
+                  onMusicTrackPress={
+                    onMusicTrackPress
+                      ? () => onMusicTrackPress(component.id)
+                      : undefined
+                  }
                 />
               );
 

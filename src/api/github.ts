@@ -182,10 +182,103 @@ export async function deleteRepo(
   await client.delete(`/repos/${owner}/${repo}`);
 }
 
+interface GithubFileContentsResponse {
+  content: string;
+  encoding: string;
+  sha: string;
+  path: string;
+}
+
+function decodeBase64Utf8(base64: string): string {
+  const cleaned = base64.replace(/\s/g, '');
+  const chars =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const lookup: Record<string, number> = {};
+  for (let i = 0; i < chars.length; i += 1) {
+    lookup[chars[i]] = i;
+  }
+
+  const bytes: number[] = [];
+  let buffer = 0;
+  let bits = 0;
+
+  for (let i = 0; i < cleaned.length; i += 1) {
+    const ch = cleaned[i];
+    if (ch === '=') break;
+    const value = lookup[ch];
+    if (value === undefined) continue;
+    buffer = (buffer << 6) | value;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push((buffer >> bits) & 0xff);
+    }
+  }
+
+  let result = '';
+  let i = 0;
+  while (i < bytes.length) {
+    const byte1 = bytes[i];
+    if (byte1 < 0x80) {
+      result += String.fromCharCode(byte1);
+      i += 1;
+    } else if (byte1 < 0xe0 && i + 1 < bytes.length) {
+      const byte2 = bytes[i + 1];
+      result += String.fromCharCode(((byte1 & 0x1f) << 6) | (byte2 & 0x3f));
+      i += 2;
+    } else if (i + 2 < bytes.length) {
+      const byte2 = bytes[i + 1];
+      const byte3 = bytes[i + 2];
+      result += String.fromCharCode(
+        ((byte1 & 0x0f) << 12) | ((byte2 & 0x3f) << 6) | (byte3 & 0x3f),
+      );
+      i += 3;
+    } else {
+      i += 1;
+    }
+  }
+
+  return result;
+}
+
+export async function getFileContent(
+  token: string,
+  owner: string,
+  repo: string,
+  path: string,
+  branch?: string,
+): Promise<string | null> {
+  const client = createClient(token);
+  try {
+    const res = await client.get<GithubFileContentsResponse>(
+      `/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`,
+      { params: branch ? { ref: branch } : undefined },
+    );
+    if (res.data.encoding === 'base64' && typeof res.data.content === 'string') {
+      return decodeBase64Utf8(res.data.content);
+    }
+    return null;
+  } catch (err) {
+    if (err instanceof GithubApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
 export interface CommitFile {
   path: string;
   contentBase64: string;
   message?: string;
+}
+
+export interface DeleteFile {
+  path: string;
+  delete: true;
+}
+
+export type CommitAction = CommitFile | DeleteFile;
+
+function isDelete(action: CommitAction): action is DeleteFile {
+  return 'delete' in action && action.delete === true;
 }
 
 interface GitRef {
@@ -210,7 +303,35 @@ interface CreatedTreeEntry {
   path: string;
   mode: '100644';
   type: 'blob';
-  sha: string;
+  sha: string | null;
+}
+
+export async function waitForRepoReady(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string = 'main',
+  maxAttempts: number = 20,
+  delayMs: number = 2000,
+): Promise<void> {
+  const client = createClient(token);
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const res = await client.get<GitRef>(
+        `/repos/${owner}/${repo}/git/ref/heads/${branch}`,
+      );
+      if (res.data?.object?.sha) return;
+    } catch {
+      // keep waiting
+    }
+    await new Promise<void>(resolve => {
+      setTimeout(resolve, delayMs);
+    });
+  }
+  throw new GithubApiError(
+    `Repository "${owner}/${repo}" never became ready on branch "${branch}". Please try again.`,
+    null,
+  );
 }
 
 export async function putFilesInOneCommit(
@@ -218,7 +339,7 @@ export async function putFilesInOneCommit(
   owner: string,
   repo: string,
   branch: string,
-  files: CommitFile[],
+  actions: CommitAction[],
   commitMessage: string,
 ): Promise<{ commitSha: string }> {
   const client = createClient(token);
@@ -235,16 +356,25 @@ export async function putFilesInOneCommit(
 
   const treeEntries: CreatedTreeEntry[] = [];
 
-  for (const file of files) {
+  for (const action of actions) {
+    if (isDelete(action)) {
+      treeEntries.push({
+        path: action.path,
+        mode: '100644',
+        type: 'blob',
+        sha: null,
+      });
+      continue;
+    }
     const blobRes = await client.post<GitBlob>(
       `/repos/${owner}/${repo}/git/blobs`,
       {
-        content: file.contentBase64,
+        content: action.contentBase64,
         encoding: 'base64',
       },
     );
     treeEntries.push({
-      path: file.path,
+      path: action.path,
       mode: '100644',
       type: 'blob',
       sha: blobRes.data.sha,
@@ -268,12 +398,27 @@ export async function putFilesInOneCommit(
     },
   );
 
-  await client.patch(`/repos/${owner}/${repo}/git/refs/heads/${branch}`, {
-    sha: newCommitRes.data.sha,
-    force: false,
-  });
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await client.patch(`/repos/${owner}/${repo}/git/refs/heads/${branch}`, {
+        sha: newCommitRes.data.sha,
+        force: true,
+      });
+      return { commitSha: newCommitRes.data.sha };
+    } catch (err) {
+      lastError = err;
+      await new Promise<void>(resolve => {
+        setTimeout(resolve, 3000);
+      });
+    }
+  }
 
-  return { commitSha: newCommitRes.data.sha };
+  if (lastError instanceof GithubApiError) throw lastError;
+  throw new GithubApiError(
+    'Failed to update the branch after several attempts.',
+    null,
+  );
 }
 
 export async function listWorkflowRuns(

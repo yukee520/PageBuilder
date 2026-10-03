@@ -7,23 +7,32 @@ import type {
 import {
   createRepoFromTemplate,
   findLatestApkUrl,
+  getFileContent,
   getWorkflowRun,
   GithubApiError,
   listWorkflowRuns,
   putFilesInOneCommit,
   repoExists,
   validateToken,
-  type CommitFile,
+  waitForRepoReady,
+  type CommitAction,
 } from '@/api/github';
 import { RUNTIME_FILES } from '@/services/runtimeSource';
 
 const POLL_INTERVAL_MS = 10000;
 const POLL_TIMEOUT_MS = 25 * 60 * 1000;
-const REPO_INIT_WAIT_MS = 8000;
+
+const TEMPLATE_PACKAGE = 'com.rntest';
+const TEMPLATE_PACKAGE_PATH = `android/app/src/main/java/${TEMPLATE_PACKAGE.replace(
+  /\./g,
+  '/',
+)}`;
+const TEMPLATE_APP_NAME = 'rn-blank-template';
 
 export interface BuildFiles {
   projectJson: string;
   projectName: string;
+  projectPackageName: string;
 }
 
 export interface StartBuildParams {
@@ -159,6 +168,15 @@ function safeAppSlug(name: string): string {
   return slug.length > 0 ? slug : 'App';
 }
 
+function sanitizePackageName(input: string): string {
+  const cleaned = input
+    .toLowerCase()
+    .replace(/[^a-z0-9.]/g, '')
+    .replace(/\.+/g, '.')
+    .replace(/^\.+|\.+$/g, '');
+  return cleaned || 'com.pagebuilder.app';
+}
+
 function xmlEscape(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -168,59 +186,220 @@ function xmlEscape(value: string): string {
     .replace(/'/g, '&apos;');
 }
 
-function buildCommitFiles(files: BuildFiles): CommitFile[] {
-  const result: CommitFile[] = [];
+function replacePackageInKotlin(
+  source: string,
+  newPackage: string,
+  appName?: string,
+): string {
+  let result = source.replace(
+    /^package\s+[\w.]+/m,
+    `package ${newPackage}`,
+  );
+  if (appName) {
+    result = result.replace(
+      /getMainComponentName\(\):\s*String\s*=\s*"[^"]*"/,
+      `getMainComponentName(): String = "${appName}"`,
+    );
+  }
+  return result;
+}
 
-  result.push({
+function replacePackageInGradle(
+  source: string,
+  newPackage: string,
+): string {
+  let result = source.replace(
+    /namespace\s+"[^"]+"/,
+    `namespace "${newPackage}"`,
+  );
+  result = result.replace(
+    /applicationId\s+"[^"]+"/,
+    `applicationId "${newPackage}"`,
+  );
+  return result;
+}
+
+async function buildCommitActions(
+  token: string,
+  owner: string,
+  repo: string,
+  files: BuildFiles,
+): Promise<CommitAction[]> {
+  const actions: CommitAction[] = [];
+
+  const appName = files.projectName;
+  const appSlug = safeAppSlug(appName);
+  const newPackage = sanitizePackageName(files.projectPackageName);
+  const newPackagePath = `android/app/src/main/java/${newPackage.replace(
+    /\./g,
+    '/',
+  )}`;
+
+  // 1. App.tsx — 1-line entry
+  actions.push({
     path: 'App.tsx',
     contentBase64: toBase64("export { default } from './runtime/App';\n"),
     message: 'entry point',
   });
 
-  const appJson = {
-    name: safeAppSlug(files.projectName),
-    displayName: files.projectName,
-  };
-
-  result.push({
+  // 2. app.json — display name and slug
+  actions.push({
     path: 'app.json',
-    contentBase64: toBase64(JSON.stringify(appJson, null, 2)),
+    contentBase64: toBase64(
+      JSON.stringify({ name: appSlug, displayName: appName }, null, 2),
+    ),
     message: 'app name',
   });
 
+  // 3. index.js — register with the SAME name as app.json
+  actions.push({
+    path: 'index.js',
+    contentBase64: toBase64(
+      "import {AppRegistry} from 'react-native';\n" +
+        "import App from './App';\n" +
+        "import {name as appName} from './app.json';\n" +
+        '\n' +
+        'AppRegistry.registerComponent(appName, () => App);\n',
+    ),
+    message: 'js entry',
+  });
+
+  // 4. strings.xml — Android launcher name
   const stringsXml =
     '<?xml version="1.0" encoding="utf-8"?>\n' +
     '<resources>\n' +
-    `    <string name="app_name">${xmlEscape(files.projectName)}</string>\n` +
+    `    <string name="app_name">${xmlEscape(appName)}</string>\n` +
     '</resources>\n';
-
-  result.push({
+  actions.push({
     path: 'android/app/src/main/res/values/strings.xml',
     contentBase64: toBase64(stringsXml),
-    message: 'app display name (strings.xml)',
+    message: 'launcher name',
   });
 
-  result.push({
+  // 5. project.json — the actual pages
+  actions.push({
     path: 'project.json',
     contentBase64: toBase64(files.projectJson),
     message: 'project data',
   });
 
-  result.push({
+  // 6. workflow — our version (release build, no keystore needed)
+  actions.push({
     path: '.github/workflows/build-apk.yml',
     contentBase64: toBase64(GENERATED_BUILD_WORKFLOW),
-    message: 'release build workflow',
+    message: 'build workflow',
   });
 
+  // 7. runtime + type files
   for (const runtimeFile of RUNTIME_FILES) {
-    result.push({
+    actions.push({
       path: runtimeFile.path,
       contentBase64: runtimeFile.base64,
       message: `runtime ${runtimeFile.path}`,
     });
   }
 
-  return result;
+  // 8. package name rewrite (only if it differs from template)
+  if (newPackage !== TEMPLATE_PACKAGE) {
+    const mainActivityPath = `${TEMPLATE_PACKAGE_PATH}/MainActivity.kt`;
+    const mainApplicationPath = `${TEMPLATE_PACKAGE_PATH}/MainApplication.kt`;
+
+    const mainActivitySource = await getFileContent(
+      token,
+      owner,
+      repo,
+      mainActivityPath,
+      'main',
+    );
+    const mainApplicationSource = await getFileContent(
+      token,
+      owner,
+      repo,
+      mainApplicationPath,
+      'main',
+    );
+
+    if (!mainActivitySource || !mainApplicationSource) {
+      throw new GithubApiError(
+        'Could not read the template MainActivity/MainApplication from the repository. Please try again.',
+        null,
+      );
+    }
+
+    const newMainActivity = replacePackageInKotlin(
+      mainActivitySource,
+      newPackage,
+      appSlug,
+    );
+    const newMainApplication = replacePackageInKotlin(
+      mainApplicationSource,
+      newPackage,
+    );
+
+    actions.push({
+      path: `${newPackagePath}/MainActivity.kt`,
+      contentBase64: toBase64(newMainActivity),
+      message: 'MainActivity at new package',
+    });
+
+    actions.push({
+      path: `${newPackagePath}/MainApplication.kt`,
+      contentBase64: toBase64(newMainApplication),
+      message: 'MainApplication at new package',
+    });
+
+    actions.push({ path: mainActivityPath, delete: true });
+    actions.push({ path: mainApplicationPath, delete: true });
+
+    // Update build.gradle too
+    const gradlePath = 'android/app/build.gradle';
+    const gradleSource = await getFileContent(
+      token,
+      owner,
+      repo,
+      gradlePath,
+      'main',
+    );
+
+    if (!gradleSource) {
+      throw new GithubApiError(
+        'Could not read android/app/build.gradle. Please try again.',
+        null,
+      );
+    }
+
+    const newGradle = replacePackageInGradle(gradleSource, newPackage);
+    actions.push({
+      path: gradlePath,
+      contentBase64: toBase64(newGradle),
+      message: 'build.gradle package',
+    });
+  } else {
+    // Even when package is same, still fix the MainActivity app name
+    const mainActivityPath = `${TEMPLATE_PACKAGE_PATH}/MainActivity.kt`;
+    const mainActivitySource = await getFileContent(
+      token,
+      owner,
+      repo,
+      mainActivityPath,
+      'main',
+    );
+    if (mainActivitySource) {
+      const patched = mainActivitySource.replace(
+        /getMainComponentName\(\):\s*String\s*=\s*"[^"]*"/,
+        `getMainComponentName(): String = "${appSlug}"`,
+      );
+      if (patched !== mainActivitySource) {
+        actions.push({
+          path: mainActivityPath,
+          contentBase64: toBase64(patched),
+          message: 'fix app name in MainActivity',
+        });
+      }
+    }
+  }
+
+  return actions;
 }
 
 export function useBuild(): UseBuildResult {
@@ -422,7 +601,7 @@ export function useBuild(): UseBuildResult {
         if (!exists) {
           update({
             phase: 'creating-repo',
-            message: `Creating repository "${config.repoName}" from template`,
+            message: `Creating repository "${config.repoName}"`,
             progress: 20,
           });
           await createRepoFromTemplate(
@@ -433,30 +612,42 @@ export function useBuild(): UseBuildResult {
             config.repoName,
             config.isPrivate,
           );
-          update({
-            phase: 'creating-repo',
-            message: 'Waiting for repository to initialize',
-            progress: 25,
-          });
-          await new Promise<void>(resolve => {
-            setTimeout(resolve, REPO_INIT_WAIT_MS);
-          });
         }
 
         update({
-          phase: 'pushing-files',
-          message: 'Uploading project, app name, and workflow',
-          progress: 35,
+          phase: 'creating-repo',
+          message: 'Waiting for repository to be ready',
+          progress: 28,
         });
 
-        const commitFiles = buildCommitFiles(files);
+        await waitForRepoReady(
+          config.token,
+          owner,
+          config.repoName,
+          'main',
+          30,
+          2000,
+        );
+
+        update({
+          phase: 'pushing-files',
+          message: 'Uploading project files',
+          progress: 40,
+        });
+
+        const actions = await buildCommitActions(
+          config.token,
+          owner,
+          config.repoName,
+          files,
+        );
 
         await putFilesInOneCommit(
           config.token,
           owner,
           config.repoName,
           'main',
-          commitFiles,
+          actions,
           'build: update from PageBuilder',
         );
 

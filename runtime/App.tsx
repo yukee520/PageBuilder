@@ -21,6 +21,7 @@ import {
   saveProgress,
   type OnboardingProgress,
 } from './src/onboardingStorage';
+import { prepareAssetCache } from './src/assetResolver';
 import type { PageComponent } from '../src/types/component';
 import type { Project } from '../src/types/project';
 import projectEnvelope from '../project.json';
@@ -64,6 +65,9 @@ export default function App(): React.ReactElement {
     let cancelled = false;
     void (async () => {
       try {
+        await prepareAssetCache();
+        if (cancelled) return;
+
         const loaded = readProject();
         if (cancelled) return;
 

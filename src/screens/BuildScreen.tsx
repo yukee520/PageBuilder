@@ -106,11 +106,7 @@ await start({
     templateRepo,
   },
   files: {
-    projectJson: JSON.stringify(
-      { version: 2, project },
-      null,
-      2,
-    ),
+    project,
     projectName: project.name,
     projectPackageName: project.packageName,
   },

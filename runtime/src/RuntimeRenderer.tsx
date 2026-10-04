@@ -16,6 +16,7 @@ import {
   stopSound,
   type SoundInstance,
 } from './MusicPlayer';
+import { resolveRuntimeUri } from './assetResolver';
 
 export interface RuntimeRendererProps {
   page: Page;
@@ -28,7 +29,6 @@ export interface RuntimeRendererProps {
 
 const CANVAS_ASPECT = 360 / 800;
 const CANVAS_REFERENCE_WIDTH = 360;
-const ASSET_DIR_IN_APK = 'user-assets';
 
 interface CanvasLayout {
   scale: number;
@@ -56,14 +56,6 @@ function computeLayout(screenW: number, screenH: number): CanvasLayout {
   const scale = canvasWidth / CANVAS_REFERENCE_WIDTH;
 
   return { scale, offsetX, offsetY, canvasWidth, canvasHeight };
-}
-
-function resolveUri(uri: string): string {
-  if (uri.startsWith('asset://')) {
-    const filename = uri.substring('asset://'.length);
-    return `file:///android_asset/${ASSET_DIR_IN_APK}/${filename}`;
-  }
-  return uri;
 }
 
 function fontSizeFor(size: SizePreset): number {
@@ -134,7 +126,7 @@ function renderComponent(
     case 'image': {
       const radius = component.rounded ? 12 * scale : 0;
       const mode = component.backgroundMode ? 'cover' : 'contain';
-      const finalUri = component.uri ? resolveUri(component.uri) : '';
+      const finalUri = component.uri ? resolveRuntimeUri(component.uri) : '';
 
       const imageInner = finalUri ? (
         <Image
@@ -178,7 +170,7 @@ function renderComponent(
     }
 
     case 'video': {
-      const finalUrl = component.url ? resolveUri(component.url) : '';
+      const finalUrl = component.url ? resolveRuntimeUri(component.url) : '';
       return (
         <Pressable
           onPress={() => ctx.onComponentPress(component)}
@@ -338,10 +330,7 @@ function renderComponent(
 
     case 'music':
       return (
-        <MusicListRenderer
-          component={component}
-          scale={scale}
-        />
+        <MusicListRenderer component={component} scale={scale} />
       );
 
     default:
@@ -585,10 +574,7 @@ export default function RuntimeRenderer({
   }, [page.components]);
 
   return (
-    <View
-      onLayout={handleLayout}
-      style={{ flex: 1, overflow: 'visible' }}
-    >
+    <View onLayout={handleLayout} style={{ flex: 1, overflow: 'visible' }}>
       {layout ? (
         <>
           <View

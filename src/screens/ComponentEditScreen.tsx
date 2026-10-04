@@ -1,4 +1,3 @@
-
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -26,6 +25,7 @@ import { useProjectStore } from '@/store/useProjectStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useTheme } from '@/hooks/useTheme';
 import { useImagePicker } from '@/hooks/useImagePicker';
+import { useVideoPicker } from '@/hooks/useVideoPicker';
 import {
   GithubApiError,
   listRepoAudioFiles,
@@ -87,7 +87,8 @@ export default function ComponentEditScreen(): React.ReactElement {
   const route = useRoute<Rt>();
   const { projectId, pageId, componentId } = route.params;
   const { colors } = useTheme();
-  const { picking, pick } = useImagePicker();
+  const { picking: pickingImage, pick: pickImage } = useImagePicker();
+  const { picking: pickingVideo, pick: pickVideo } = useVideoPicker();
 
   const project = useProjectStore(s => s.project);
   const updateComponent = useProjectStore(s => s.updateComponent);
@@ -122,11 +123,18 @@ export default function ComponentEditScreen(): React.ReactElement {
   );
 
   const handlePickImage = useCallback(async (): Promise<void> => {
-    const result = await pick();
+    const result = await pickImage();
     if (!result) return;
     patch({ uri: result.uri } as Partial<ImageComponent>);
     Toast.show({ type: 'success', text1: 'Image added' });
-  }, [patch, pick]);
+  }, [patch, pickImage]);
+
+  const handlePickVideo = useCallback(async (): Promise<void> => {
+    const result = await pickVideo();
+    if (!result) return;
+    patch({ url: result.uri } as Partial<VideoComponent>);
+    Toast.show({ type: 'success', text1: 'Video added' });
+  }, [patch, pickVideo]);
 
   const handleDelete = useCallback((): void => {
     Alert.alert('Delete component?', 'This cannot be undone.', [
@@ -347,7 +355,15 @@ export default function ComponentEditScreen(): React.ReactElement {
               <Text className="text-base font-semibold text-text dark:text-dark-text mb-3">
                 Content
               </Text>
-              {renderContentEditor(component, patch, colors, picking, handlePickImage)}
+              {renderContentEditor(
+                component,
+                patch,
+                colors,
+                pickingImage,
+                handlePickImage,
+                pickingVideo,
+                handlePickVideo,
+              )}
             </Card>
 
             {component.type === 'music' ? (
@@ -487,8 +503,7 @@ export default function ComponentEditScreen(): React.ReactElement {
               {renderAppearanceEditor(component, patch, colors, handleAlign)}
             </Card>
 
-            {component.type !== 'spacer' &&
-            component.type !== 'divider' ? (
+            {component.type !== 'spacer' && component.type !== 'divider' ? (
               <Card className="mb-4">
                 <Text className="text-base font-semibold text-text dark:text-dark-text mb-2">
                   Position
@@ -537,7 +552,8 @@ export default function ComponentEditScreen(): React.ReactElement {
                     Visible
                   </Text>
                   <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">
-                    Hidden components won't show during preview or in the built APK.
+                    Hidden components won't show during preview or in the built
+                    APK.
                   </Text>
                 </View>
                 <Switch
@@ -592,7 +608,8 @@ export default function ComponentEditScreen(): React.ReactElement {
                 {component.actions.length === 0 ? (
                   <View className="bg-card dark:bg-dark-card border border-dashed border-border dark:border-dark-border rounded-xl p-4 mb-2 items-center">
                     <Text className="text-xs text-muted dark:text-dark-muted text-center">
-                      No actions yet. Add one to make this component interactive.
+                      No actions yet. Add one to make this component
+                      interactive.
                     </Text>
                   </View>
                 ) : null}
@@ -719,8 +736,10 @@ function renderContentEditor(
   c: PageComponent,
   patch: (update: Partial<PageComponent>) => void,
   colors: ReturnType<typeof useTheme>['colors'],
-  picking: boolean,
+  pickingImage: boolean,
   onPickImage: () => void,
+  pickingVideo: boolean,
+  onPickVideo: () => void,
 ): React.ReactElement {
   switch (c.type) {
     case 'text':
@@ -765,7 +784,7 @@ function renderContentEditor(
 
           <Button
             label={
-              picking
+              pickingImage
                 ? 'Opening gallery…'
                 : c.uri
                 ? 'Replace image'
@@ -773,7 +792,7 @@ function renderContentEditor(
             }
             icon="images-outline"
             onPress={onPickImage}
-            loading={picking}
+            loading={pickingImage}
             fullWidth
           />
 
@@ -806,17 +825,83 @@ function renderContentEditor(
 
     case 'video':
       return (
-        <>
-          <Input
-            label="Video URL"
-            value={c.url}
-            onChangeText={value =>
-              patch({ url: value } as Partial<VideoComponent>)
+        <View>
+          <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
+            Video source
+          </Text>
+
+          {c.url ? (
+            <View className="mb-3 rounded-xl border border-border dark:border-dark-border bg-background dark:bg-dark-background p-3">
+              <View className="flex-row items-center">
+                <Ionicons
+                  name="videocam-outline"
+                  size={20}
+                  color={colors.primary}
+                />
+                <Text
+                  className="text-xs text-text dark:text-dark-text ml-2 flex-1"
+                  numberOfLines={2}
+                >
+                  {c.url}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <View
+              className="mb-3 rounded-xl border border-dashed border-border dark:border-dark-border items-center justify-center bg-background dark:bg-dark-background"
+              style={{ height: 100 }}
+            >
+              <Ionicons
+                name="videocam-outline"
+                size={28}
+                color={colors.muted}
+              />
+              <Text className="text-xs text-muted dark:text-dark-muted mt-2">
+                No video selected
+              </Text>
+            </View>
+          )}
+
+          <Button
+            label={
+              pickingVideo
+                ? 'Opening gallery…'
+                : c.url
+                ? 'Replace video'
+                : 'Pick video from gallery'
             }
-            placeholder="https://www.youtube.com/watch?v=..."
-            autoCapitalize="none"
-            containerClassName="mb-3"
+            icon="videocam-outline"
+            onPress={onPickVideo}
+            loading={pickingVideo}
+            fullWidth
           />
+
+          {c.url ? (
+            <View className="mt-2">
+              <Button
+                label="Remove video"
+                icon="close-circle-outline"
+                variant="ghost"
+                size="small"
+                onPress={() => patch({ url: '' } as Partial<VideoComponent>)}
+              />
+            </View>
+          ) : null}
+
+          <View className="mt-4">
+            <Input
+              label="Or paste a video URL"
+              value={c.url.startsWith('http') ? c.url : ''}
+              onChangeText={value =>
+                patch({ url: value } as Partial<VideoComponent>)
+              }
+              placeholder="https://www.youtube.com/watch?v=..."
+              autoCapitalize="none"
+              hint="Useful for videos hosted online."
+              containerClassName="mb-3"
+            />
+          </View>
+
           <View className="flex-row items-center justify-between">
             <Text className="text-sm text-text dark:text-dark-text">
               Autoplay
@@ -829,7 +914,7 @@ function renderContentEditor(
               trackColor={{ false: colors.border, true: colors.primary }}
             />
           </View>
-        </>
+        </View>
       );
 
     case 'button':
@@ -895,8 +980,8 @@ function renderContentEditor(
     case 'row':
       return (
         <Text className="text-xs text-muted dark:text-dark-muted">
-          This is a row container. Child components inside rows are managed on the
-          canvas.
+          This is a row container. Child components inside rows are managed on
+          the canvas.
         </Text>
       );
 
@@ -1074,7 +1159,8 @@ function renderAppearanceEditor(
                 Fill the box (cover)
               </Text>
               <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">
-                Off: image fits inside the box. On: image fills the box, may crop.
+                Off: image fits inside the box. On: image fills the box, may
+                crop.
               </Text>
             </View>
             <Switch
@@ -1585,11 +1671,7 @@ function RepoBrowserModal({
             />
           ) : (
             <View className="flex-1 items-center justify-center px-6">
-              <Ionicons
-                name="logo-github"
-                size={40}
-                color={colors.muted}
-              />
+              <Ionicons name="logo-github" size={40} color={colors.muted} />
               <Text className="text-xs text-muted dark:text-dark-muted mt-3 text-center">
                 Enter a public GitHub repository and tap Browse files.
               </Text>

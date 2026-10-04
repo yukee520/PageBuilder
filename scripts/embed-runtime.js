@@ -22,8 +22,8 @@ const FILES_TO_EMBED = [
     targetPath: 'runtime/src/onboardingStorage.ts',
   },
   {
-    sourcePath: 'runtime/src/MusicPlayer.ts',
-    targetPath: 'runtime/src/MusicPlayer.ts',
+    sourcePath: 'runtime/src/MusicPlayer.tsx',
+    targetPath: 'runtime/src/MusicPlayer.tsx',
   },
   {
     sourcePath: 'runtime/src/assetResolver.ts',

@@ -4,6 +4,7 @@ import {
   Alert,
   Linking,
   SafeAreaView,
+  ScrollView,
   StatusBar,
   Text,
   View,
@@ -21,7 +22,11 @@ import {
   saveProgress,
   type OnboardingProgress,
 } from './src/onboardingStorage';
-import { prepareAssetCache } from './src/assetResolver';
+import {
+  getAssetDebugInfo,
+  prepareAssetCache,
+  type AssetDebugInfo,
+} from './src/assetResolver';
 import type { PageComponent } from '../src/types/component';
 import type { Project } from '../src/types/project';
 import projectEnvelope from '../project.json';
@@ -44,6 +49,8 @@ export default function App(): React.ReactElement {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [debug, setDebug] = useState<AssetDebugInfo | null>(null);
+  const [showDebug, setShowDebug] = useState<boolean>(true);
 
   const [state, setState] = useState<RuntimeState>({
     activePageId: null,
@@ -67,6 +74,7 @@ export default function App(): React.ReactElement {
       try {
         await prepareAssetCache();
         if (cancelled) return;
+        setDebug(getAssetDebugInfo());
 
         const loaded = readProject();
         if (cancelled) return;
@@ -214,14 +222,81 @@ export default function App(): React.ReactElement {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1, backgroundColor: '#E2E8F0' }}>
         <StatusBar barStyle="dark-content" />
-        <RuntimeRenderer
-          page={activePage}
-          variables={state.variables}
-          hiddenComponentIds={state.hiddenComponentIds}
-          onComponentPress={onComponentPress}
-          onInputChange={onInputChange}
-          canvasBackgroundColor="#FFFFFF"
-        />
+        <View style={{ flex: 1 }}>
+          <RuntimeRenderer
+            page={activePage}
+            variables={state.variables}
+            hiddenComponentIds={state.hiddenComponentIds}
+            onComponentPress={onComponentPress}
+            onInputChange={onInputChange}
+            canvasBackgroundColor="#FFFFFF"
+          />
+
+          {showDebug && debug ? (
+            <View
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                backgroundColor: 'rgba(0,0,0,0.85)',
+                paddingTop: 40,
+                paddingHorizontal: 12,
+                paddingBottom: 12,
+              }}
+            >
+              <ScrollView style={{ maxHeight: 220 }}>
+                <Text style={{ color: '#0F0', fontSize: 10, fontWeight: '700' }}>
+                  ASSET DEBUG
+                </Text>
+                <Text style={{ color: '#FFF', fontSize: 10, marginTop: 2 }}>
+                  attempted: {String(debug.attempted)}
+                </Text>
+                <Text style={{ color: '#FFF', fontSize: 10 }}>
+                  cacheDir exists: {String(debug.cacheDirExists)}
+                </Text>
+                <Text style={{ color: '#FFF', fontSize: 10 }}>
+                  filesFound: {debug.filesFound}
+                </Text>
+                <Text style={{ color: '#FFF', fontSize: 10 }}>
+                  filesCopied: {debug.filesCopied}
+                </Text>
+                <Text style={{ color: '#FFF', fontSize: 10, marginTop: 4 }}>
+                  files:
+                </Text>
+                {debug.fileNames.map(n => (
+                  <Text
+                    key={n}
+                    style={{ color: '#FF0', fontSize: 10, marginLeft: 6 }}
+                  >
+                    • {n}
+                  </Text>
+                ))}
+                {debug.errors.length > 0 ? (
+                  <>
+                    <Text style={{ color: '#F00', fontSize: 10, marginTop: 4 }}>
+                      errors:
+                    </Text>
+                    {debug.errors.map((e, i) => (
+                      <Text
+                        key={`${i}-${e}`}
+                        style={{ color: '#F88', fontSize: 10, marginLeft: 6 }}
+                      >
+                        • {e}
+                      </Text>
+                    ))}
+                  </>
+                ) : null}
+              </ScrollView>
+              <Text
+                style={{ color: '#0AF', fontSize: 10, marginTop: 4 }}
+                onPress={() => setShowDebug(false)}
+              >
+                Tap to hide
+              </Text>
+            </View>
+          ) : null}
+        </View>
       </SafeAreaView>
     </GestureHandlerRootView>
   );

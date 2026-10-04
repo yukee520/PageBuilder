@@ -18,6 +18,8 @@ import {
   type CommitAction,
 } from '@/api/github';
 import { RUNTIME_FILES } from '@/services/runtimeSource';
+import { bundleLocalAssets } from '@/services/assetBundler';
+import type { Project } from '@/types/project';
 
 const POLL_INTERVAL_MS = 10000;
 const POLL_TIMEOUT_MS = 25 * 60 * 1000;
@@ -29,7 +31,7 @@ const TEMPLATE_PACKAGE_PATH = `android/app/src/main/java/${TEMPLATE_PACKAGE.repl
 )}`;
 
 export interface BuildFiles {
-  projectJson: string;
+  project: Project;
   projectName: string;
   projectPackageName: string;
 }
@@ -85,6 +87,19 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
+
+      - name: Unpack bundled assets
+        run: |
+          ASSETS_SRC="assets/user-assets"
+          ASSETS_DST="android/app/src/main/assets/user-assets"
+          if [ -d "$ASSETS_SRC" ]; then
+            mkdir -p "$ASSETS_DST"
+            cp -R "$ASSETS_SRC"/. "$ASSETS_DST"/
+            echo "Copied bundled assets:"
+            ls -la "$ASSETS_DST" | head -20
+          else
+            echo "No bundled assets found (skipping)"
+          fi
 
       - name: Build Release APK
         working-directory: android
@@ -268,6 +283,12 @@ async function buildCommitActions(
   const newMainActivity = `${newPackagePath}/MainActivity.kt`;
   const newMainApplication = `${newPackagePath}/MainApplication.kt`;
 
+  const bundled = await bundleLocalAssets(files.project);
+
+  for (const assetAction of bundled.actions) {
+    actions.push(assetAction);
+  }
+
   actions.push({
     path: 'App.tsx',
     contentBase64: toBase64("export { default } from './runtime/App';\n"),
@@ -307,7 +328,7 @@ async function buildCommitActions(
 
   actions.push({
     path: 'project.json',
-    contentBase64: toBase64(files.projectJson),
+    contentBase64: toBase64(bundled.updatedProjectJson),
     message: 'project data',
   });
 
@@ -593,7 +614,12 @@ export function useBuild(): UseBuildResult {
           result: null,
         });
 
-        validateProjectJson(files.projectJson);
+        const projectJsonPreview = JSON.stringify(
+          { version: 2, project: files.project },
+          null,
+          2,
+        );
+        validateProjectJson(projectJsonPreview);
 
         update({
           phase: 'creating-repo',
@@ -644,8 +670,8 @@ export function useBuild(): UseBuildResult {
 
         update({
           phase: 'pushing-files',
-          message: 'Reading template files',
-          progress: 35,
+          message: 'Bundling local images and videos',
+          progress: 32,
         });
 
         const actions = await buildCommitActions(

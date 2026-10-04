@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   BuildConfig,
@@ -28,7 +27,6 @@ const TEMPLATE_PACKAGE_PATH = `android/app/src/main/java/${TEMPLATE_PACKAGE.repl
   /\./g,
   '/',
 )}`;
-const TEMPLATE_APP_NAME = 'rn-blank-template';
 
 export interface BuildFiles {
   projectJson: string;
@@ -214,32 +212,39 @@ function replacePackageInGradle(source: string, newPackage: string): string {
   return result;
 }
 
-async function readWithRetry(
+async function readOnce(
   token: string,
   owner: string,
   repo: string,
   path: string,
-  attempts: number = 8,
-  delayMs: number = 3000,
-): Promise<string> {
-  let lastError: unknown = null;
-  for (let i = 0; i < attempts; i += 1) {
-    try {
-      const content = await getFileContent(token, owner, repo, path, 'main');
-      if (content !== null) return content;
-      lastError = new Error(`File "${path}" was empty.`);
-    } catch (err) {
-      lastError = err;
+): Promise<string | null> {
+  try {
+    const content = await getFileContent(token, owner, repo, path, 'main');
+    if (content && content.length > 0) return content;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function readFromCandidates(
+  token: string,
+  owner: string,
+  repo: string,
+  candidates: string[],
+  attempts: number = 3,
+  delayMs: number = 2000,
+): Promise<{ path: string; content: string } | null> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    for (const path of candidates) {
+      const content = await readOnce(token, owner, repo, path);
+      if (content) return { path, content };
     }
     await new Promise<void>(resolve => {
       setTimeout(resolve, delayMs);
     });
   }
-  const message =
-    lastError instanceof Error
-      ? lastError.message
-      : `Could not read "${path}" from the repository after ${attempts} attempts.`;
-  throw new Error(message);
+  return null;
 }
 
 async function buildCommitActions(
@@ -257,6 +262,11 @@ async function buildCommitActions(
     /\./g,
     '/',
   )}`;
+
+  const templateMainActivity = `${TEMPLATE_PACKAGE_PATH}/MainActivity.kt`;
+  const templateMainApplication = `${TEMPLATE_PACKAGE_PATH}/MainApplication.kt`;
+  const newMainActivity = `${newPackagePath}/MainActivity.kt`;
+  const newMainApplication = `${newPackagePath}/MainApplication.kt`;
 
   actions.push({
     path: 'App.tsx',
@@ -315,76 +325,91 @@ async function buildCommitActions(
     });
   }
 
-  if (newPackage !== TEMPLATE_PACKAGE) {
-    const mainActivityPath = `${TEMPLATE_PACKAGE_PATH}/MainActivity.kt`;
-    const mainApplicationPath = `${TEMPLATE_PACKAGE_PATH}/MainApplication.kt`;
+  const mainActivityCandidates =
+    newMainActivity === templateMainActivity
+      ? [templateMainActivity]
+      : [newMainActivity, templateMainActivity];
 
-    const mainActivitySource = await readWithRetry(
-      token,
-      owner,
-      repo,
-      mainActivityPath,
-    );
-    const mainApplicationSource = await readWithRetry(
-      token,
-      owner,
-      repo,
-      mainApplicationPath,
-    );
+  const mainApplicationCandidates =
+    newMainApplication === templateMainApplication
+      ? [templateMainApplication]
+      : [newMainApplication, templateMainApplication];
 
-    const newMainActivity = replacePackageInKotlin(
-      mainActivitySource,
-      newPackage,
-      appSlug,
-    );
-    const newMainApplication = replacePackageInKotlin(
-      mainApplicationSource,
-      newPackage,
-    );
+  const foundMainActivity = await readFromCandidates(
+    token,
+    owner,
+    repo,
+    mainActivityCandidates,
+  );
+  const foundMainApplication = await readFromCandidates(
+    token,
+    owner,
+    repo,
+    mainApplicationCandidates,
+  );
 
+  if (!foundMainActivity || !foundMainApplication) {
+    throw new Error(
+      'Could not find MainActivity.kt or MainApplication.kt in the repository. ' +
+        'Delete the repository on GitHub and try building again with a new name.',
+    );
+  }
+
+  const patchedMainActivity = replacePackageInKotlin(
+    foundMainActivity.content,
+    newPackage,
+    appSlug,
+  );
+  const patchedMainApplication = replacePackageInKotlin(
+    foundMainApplication.content,
+    newPackage,
+  );
+
+  if (foundMainActivity.path !== newMainActivity) {
     actions.push({
-      path: `${newPackagePath}/MainActivity.kt`,
-      contentBase64: toBase64(newMainActivity),
+      path: newMainActivity,
+      contentBase64: toBase64(patchedMainActivity),
       message: 'MainActivity at new package',
     });
-
+    actions.push({ path: foundMainActivity.path, delete: true });
+  } else if (patchedMainActivity !== foundMainActivity.content) {
     actions.push({
-      path: `${newPackagePath}/MainApplication.kt`,
-      contentBase64: toBase64(newMainApplication),
+      path: foundMainActivity.path,
+      contentBase64: toBase64(patchedMainActivity),
+      message: 'MainActivity app name',
+    });
+  }
+
+  if (foundMainApplication.path !== newMainApplication) {
+    actions.push({
+      path: newMainApplication,
+      contentBase64: toBase64(patchedMainApplication),
       message: 'MainApplication at new package',
     });
+    actions.push({ path: foundMainApplication.path, delete: true });
+  } else if (patchedMainApplication !== foundMainApplication.content) {
+    actions.push({
+      path: foundMainApplication.path,
+      contentBase64: toBase64(patchedMainApplication),
+      message: 'MainApplication package',
+    });
+  }
 
-    actions.push({ path: mainActivityPath, delete: true });
-    actions.push({ path: mainApplicationPath, delete: true });
+  const gradlePath = 'android/app/build.gradle';
+  const gradleContent = await readOnce(token, owner, repo, gradlePath);
+  if (!gradleContent) {
+    throw new Error(
+      'Could not read android/app/build.gradle. Delete the repository on GitHub and try again.',
+    );
+  }
 
-    const gradlePath = 'android/app/build.gradle';
-    const gradleSource = await readWithRetry(token, owner, repo, gradlePath);
-
-    const newGradle = replacePackageInGradle(gradleSource, newPackage);
+  const patchedGradle = replacePackageInGradle(gradleContent, newPackage);
+  if (patchedGradle !== gradleContent) {
     actions.push({
       path: gradlePath,
-      contentBase64: toBase64(newGradle),
+      contentBase64: toBase64(patchedGradle),
       message: 'build.gradle package',
     });
-  } else {
-    const mainActivityPath = `${TEMPLATE_PACKAGE_PATH}/MainActivity.kt`;
-    const mainActivitySource = await readWithRetry(
-      token,
-      owner,
-      repo,
-      mainActivityPath,
-    );
-    const patched = mainActivitySource.replace(
-      /getMainComponentName\(\):\s*String\s*=\s*"[^"]*"/,
-      `getMainComponentName(): String = "${appSlug}"`,
-    );
-    if (patched !== mainActivitySource) {
-      actions.push({
-        path: mainActivityPath,
-        contentBase64: toBase64(patched),
-        message: 'fix app name in MainActivity',
-      });
-    }
   }
 
   return actions;

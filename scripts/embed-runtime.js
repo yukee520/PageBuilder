@@ -25,6 +25,10 @@ const FILES_TO_EMBED = [
     sourcePath: 'runtime/src/MusicPlayer.ts',
     targetPath: 'runtime/src/MusicPlayer.ts',
   },
+  {
+    sourcePath: 'runtime/src/assetResolver.ts',
+    targetPath: 'runtime/src/assetResolver.ts',
+  },
   { sourcePath: 'src/types/action.ts', targetPath: 'src/types/action.ts' },
   {
     sourcePath: 'src/types/component.ts',

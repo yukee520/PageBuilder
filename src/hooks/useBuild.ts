@@ -85,8 +85,10 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+     - name: Install dependencies
+        run: |
+           npm ci --legacy-peer-deps
+           npm install react-native-sound@0.13.0 --legacy-peer-deps --no-save
 
       - name: Unpack bundled assets
         run: |

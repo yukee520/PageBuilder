@@ -18,11 +18,34 @@ export interface ProjectStoreState {
   setPackageName: (packageName: string) => void;
   setVersion: (version: string) => void;
 
+  /**
+   * Project-level private-asset credentials. When `assetToken` is set, the
+   * runtime attaches it to any request that targets `assetRepo`
+   * (currently: Music tracks and BGM from api.github.com URLs).
+   *
+   * Pass an empty string to clear a value.
+   */
+  setAssetRepo: (repo: string) => void;
+  setAssetToken: (token: string) => void;
+
   addPage: (title?: string, type?: PageType) => string;
   removePage: (pageId: string) => void;
   renamePage: (pageId: string, title: string) => void;
   movePage: (pageId: string, direction: 'up' | 'down') => void;
   setPageType: (pageId: string, type: PageType) => void;
+
+  /**
+   * Per-page background music. Pass partial fields to update individually.
+   * Pass `undefined` for a field to leave it unchanged.
+   */
+  setPageBgm: (
+    pageId: string,
+    patch: {
+      bgmEnabled?: boolean;
+      bgmUrl?: string;
+      bgmLoop?: boolean;
+    },
+  ) => void;
 
   addComponent: (pageId: string, type: ComponentType) => string | null;
   updateComponent: (
@@ -38,18 +61,6 @@ export interface ProjectStoreState {
   ) => void;
   reorderComponents: (pageId: string, orderedIds: string[]) => void;
   toggleComponentVisibility: (pageId: string, componentId: string) => void;
-
-  /**
-   * Sets (or clears) the GitHub Personal Access Token stored on a Music
-   * component. Used to stream tracks from a private repository.
-   *
-   * Pass an empty string to clear the token.
-   */
-  setMusicAccessToken: (
-    pageId: string,
-    componentId: string,
-    token: string,
-  ) => void;
 
   addAction: (
     pageId: string,
@@ -145,6 +156,18 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     set({ project: touch({ ...project, version }), dirty: true });
   },
 
+  setAssetRepo: repo => {
+    const { project } = get();
+    if (!project) return;
+    set({ project: touch({ ...project, assetRepo: repo }), dirty: true });
+  },
+
+  setAssetToken: token => {
+    const { project } = get();
+    if (!project) return;
+    set({ project: touch({ ...project, assetToken: token }), dirty: true });
+  },
+
   addPage: (title?: string, type?: PageType) => {
     const { project } = get();
     if (!project) return '';
@@ -204,6 +227,23 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     if (!project) return;
     set({
       project: touch(mapPages(project, pageId, p => ({ ...p, type }))),
+      dirty: true,
+    });
+  },
+
+  setPageBgm: (pageId, patch) => {
+    const { project } = get();
+    if (!project) return;
+    set({
+      project: touch(
+        mapPages(project, pageId, p => ({
+          ...p,
+          bgmEnabled:
+            patch.bgmEnabled === undefined ? p.bgmEnabled : patch.bgmEnabled,
+          bgmUrl: patch.bgmUrl === undefined ? p.bgmUrl : patch.bgmUrl,
+          bgmLoop: patch.bgmLoop === undefined ? p.bgmLoop : patch.bgmLoop,
+        })),
+      ),
       dirty: true,
     });
   },
@@ -310,22 +350,6 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
             ...c,
             visible: !c.visible,
           })) as Page,
-        ),
-      ),
-      dirty: true,
-    });
-  },
-
-  setMusicAccessToken: (pageId, componentId, token) => {
-    const { project } = get();
-    if (!project) return;
-    set({
-      project: touch(
-        mapPages(project, pageId, page =>
-          mapComponents(page, componentId, c => {
-            if (c.type !== 'music') return c;
-            return { ...c, accessToken: token };
-          }) as Page,
         ),
       ),
       dirty: true,

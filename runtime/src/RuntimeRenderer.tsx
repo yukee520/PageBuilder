@@ -330,17 +330,17 @@ function renderComponent(
       );
     }
 
-    case 'music':
-      return (
-        <MusicListRenderer
-          tracks={component.tracks}
-          showArtist={component.showArtist}
-          autoplay={component.autoplay}
-          accessToken={ctx.projectAssetToken}
-          scale={scale}
-        />
-      );
-
+case 'music':
+  return (
+    <MusicListRenderer
+      tracks={component.tracks}
+      showArtist={component.showArtist}
+      autoplay={component.autoplay}
+      accessToken={ctx.projectAssetToken}
+      scale={scale}
+      componentId={component.id}
+    />
+  );
     default:
       return null;
   }

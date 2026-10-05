@@ -102,6 +102,7 @@ export default function ComponentEditScreen(): React.ReactElement {
   const moveComponent = useProjectStore(s => s.moveComponent);
   const addAction = useProjectStore(s => s.addAction);
   const removeAction = useProjectStore(s => s.removeAction);
+  const setMusicAccessToken = useProjectStore(s => s.setMusicAccessToken);
 
   const githubToken = useSettingsStore(s => s.githubToken);
 
@@ -506,6 +507,41 @@ export default function ComponentEditScreen(): React.ReactElement {
                     </View>
                   ))
                 )}
+
+                <View className="mt-4 pt-4 border-t border-border dark:border-dark-border">
+                  <Text className="text-sm font-semibold text-text dark:text-dark-text mb-1">
+                    Private repository token
+                  </Text>
+                  <Text className="text-xs text-muted dark:text-dark-muted mb-3">
+                    Required only if the track URLs point to a private GitHub
+                    repository. Leave empty for public repos.
+                  </Text>
+                  <Input
+                    label="GitHub token"
+                    value={component.accessToken ?? ''}
+                    onChangeText={value =>
+                      setMusicAccessToken(pageId, componentId, value.trim())
+                    }
+                    placeholder="github_pat_..."
+                    autoCapitalize="none"
+                    secureTextEntry
+                    hint="Stored inside the built app. Use a fine-grained token scoped to a single repo, with read-only Contents access. Anyone with the APK can read this token."
+                  />
+                  <View className="bg-danger/10 dark:bg-danger/20 rounded-xl p-3 mt-3 flex-row items-start">
+                    <Ionicons
+                      name="warning-outline"
+                      size={16}
+                      color={colors.danger}
+                    />
+                    <Text className="text-xs text-danger dark:text-danger ml-2 flex-1">
+                      Never use a token with write access. Create one at
+                      github.com/settings/tokens with:
+                      {'\n'}• Repository access: Only select repositories
+                      {'\n'}• Permissions → Contents: Read-only
+                      {'\n'}• Expiration: 90 days
+                    </Text>
+                  </View>
+                </View>
               </Card>
             ) : null}
 

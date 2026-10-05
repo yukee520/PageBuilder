@@ -1,4 +1,3 @@
-
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import Video, { type VideoRef } from 'react-native-video';
@@ -35,9 +34,11 @@ export interface MusicListRendererProps {
   showArtist: boolean;
   autoplay: boolean;
   /**
-   * Optional GitHub Personal Access Token. When present, it's sent as an
-   * `Authorization: Bearer <token>` header on every request. This is what
-   * lets tracks stream from a private repository.
+   * Optional GitHub Personal Access Token. Sourced from the project
+   * (`project.assetToken`) and passed down by `RuntimeRenderer`. When
+   * present, it's sent as an `Authorization: Bearer <token>` header on
+   * every request, which is what lets tracks stream from a private
+   * repository.
    */
   accessToken?: string;
   /**

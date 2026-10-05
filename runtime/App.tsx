@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import RuntimeRenderer from './src/RuntimeRenderer';
+import { BgmPlayer } from './src/BgmPlayer';
 import {
   handleAction,
   resolveStartPage,
@@ -31,6 +32,12 @@ import type { PageComponent } from '../src/types/component';
 import type { Project } from '../src/types/project';
 import projectEnvelope from '../project.json';
 
+/**
+ * Set to false to hide the on-device asset debug overlay.
+ * Flip to false before shipping a clean build to end users.
+ */
+const SHOW_ASSET_DEBUG = true;
+
 interface ProjectEnvelope {
   version: number;
   project: Project;
@@ -50,7 +57,7 @@ export default function App(): React.ReactElement {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [debug, setDebug] = useState<AssetDebugInfo | null>(null);
-  const [showDebug, setShowDebug] = useState<boolean>(true);
+  const [showDebug, setShowDebug] = useState<boolean>(SHOW_ASSET_DEBUG);
 
   const [state, setState] = useState<RuntimeState>({
     activePageId: null,
@@ -218,6 +225,11 @@ export default function App(): React.ReactElement {
     );
   }
 
+  const bgmEnabled = activePage.bgmEnabled === true && !!activePage.bgmUrl;
+  const bgmUrl = activePage.bgmUrl;
+  const bgmLoop = activePage.bgmLoop !== false; // default true
+  const assetToken = project.assetToken;
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1, backgroundColor: '#E2E8F0' }}>
@@ -230,6 +242,15 @@ export default function App(): React.ReactElement {
             onComponentPress={onComponentPress}
             onInputChange={onInputChange}
             canvasBackgroundColor="#FFFFFF"
+            projectAssetToken={assetToken}
+          />
+
+          <BgmPlayer
+            pageId={activePage.id}
+            enabled={bgmEnabled}
+            url={bgmUrl}
+            loop={bgmLoop}
+            accessToken={assetToken}
           />
 
           {showDebug && debug ? (
@@ -244,8 +265,9 @@ export default function App(): React.ReactElement {
                 paddingHorizontal: 12,
                 paddingBottom: 12,
               }}
+              pointerEvents="box-none"
             >
-              <ScrollView style={{ maxHeight: 220 }}>
+              <ScrollView style={{ maxHeight: 220 }} pointerEvents="box-none">
                 <Text style={{ color: '#0F0', fontSize: 10, fontWeight: '700' }}>
                   ASSET DEBUG
                 </Text>

@@ -26,6 +26,14 @@ const FILES_TO_EMBED = [
     targetPath: 'runtime/src/MusicPlayer.tsx',
   },
   {
+    sourcePath: 'runtime/src/BgmPlayer.tsx',
+    targetPath: 'runtime/src/BgmPlayer.tsx',
+  },
+  {
+    sourcePath: 'runtime/src/audioBus.ts',
+    targetPath: 'runtime/src/audioBus.ts',
+  },
+  {
     sourcePath: 'runtime/src/assetResolver.ts',
     targetPath: 'runtime/src/assetResolver.ts',
   },
@@ -36,7 +44,6 @@ const FILES_TO_EMBED = [
   },
   { sourcePath: 'src/types/project.ts', targetPath: 'src/types/project.ts' },
 ];
-
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });

@@ -7,6 +7,19 @@ export interface Page {
   title: string;
   components: PageComponent[];
   type: PageType;
+  /**
+   * Per-page background music. When `bgmEnabled` is true and `bgmUrl` is set,
+   * the runtime starts playing the track when this page becomes active and
+   * stops it when the user navigates away.
+   *
+   * The URL can be:
+   *   - A public https:// URL (e.g. https://example.com/song.mp3)
+   *   - A GitHub contents API URL for a private repo (the project's
+   *     `assetToken` is attached automatically by the runtime)
+   */
+  bgmEnabled?: boolean;
+  bgmUrl?: string;
+  bgmLoop?: boolean;
 }
 
 export interface Project {
@@ -18,6 +31,22 @@ export interface Project {
   pages: Page[];
   createdAt: number;
   updatedAt: number;
+  /**
+   * Optional GitHub repository that hosts this project's private assets,
+   * in "owner/repo" form. When set, the runtime can resolve relative asset
+   * references against it.
+   */
+  assetRepo?: string;
+  /**
+   * Optional GitHub Personal Access Token used to read assets from the
+   * private repository above.
+   *
+   * WARNING: this token is stored in project.json and bundled into the
+   * built APK. Anyone with the APK can extract it. Use a fine-grained
+   * token scoped to a single repository with read-only Contents access,
+   * and set an expiry (90 days recommended). Never grant write access.
+   */
+  assetToken?: string;
 }
 
 export interface ProjectMeta {

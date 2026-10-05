@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState } from 'react';
 import {
   Image,
@@ -19,6 +20,12 @@ export interface RuntimeRendererProps {
   onComponentPress: (component: PageComponent) => void;
   onInputChange: (componentId: string, value: string) => void;
   canvasBackgroundColor?: string;
+  /**
+   * Optional project-level GitHub Personal Access Token. When set, it's
+   * forwarded to the music renderer, which uses it to stream tracks from
+   * a private repository.
+   */
+  projectAssetToken?: string;
 }
 
 const CANVAS_ASPECT = 360 / 800;
@@ -72,6 +79,7 @@ interface RenderContext {
   onComponentPress: (component: PageComponent) => void;
   onInputChange: (componentId: string, value: string) => void;
   variables: Record<string, string>;
+  projectAssetToken?: string;
 }
 
 function renderComponent(
@@ -328,7 +336,7 @@ function renderComponent(
           tracks={component.tracks}
           showArtist={component.showArtist}
           autoplay={component.autoplay}
-          accessToken={component.accessToken}
+          accessToken={ctx.projectAssetToken}
           scale={scale}
         />
       );
@@ -345,6 +353,7 @@ export default function RuntimeRenderer({
   onComponentPress,
   onInputChange,
   canvasBackgroundColor,
+  projectAssetToken,
 }: RuntimeRendererProps): React.ReactElement {
   const [size, setSize] = useState<{ width: number; height: number }>({
     width: 0,
@@ -419,6 +428,7 @@ export default function RuntimeRenderer({
                     onComponentPress,
                     onInputChange,
                     variables,
+                    projectAssetToken,
                   })}
                 </View>
               );

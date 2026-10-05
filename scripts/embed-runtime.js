@@ -44,6 +44,7 @@ const FILES_TO_EMBED = [
   },
   { sourcePath: 'src/types/project.ts', targetPath: 'src/types/project.ts' },
 ];
+
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });

@@ -88,7 +88,7 @@ jobs:
       - name: Install dependencies
         run: |
           npm ci --legacy-peer-deps
-          npm install react-native-video@6.4.5 --legacy-peer-deps
+          npm install react-native-video@6.6.0 --legacy-peer-deps
 
       - name: Unpack bundled assets
         run: |

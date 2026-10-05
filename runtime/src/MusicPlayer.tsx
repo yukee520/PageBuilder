@@ -1,13 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import Video, { type VideoRef } from 'react-native-video';
+import { release, subscribe, takeOver } from './audioBus';
 
-/**
- * Set this to true when diagnosing music playback inside a generated APK.
- * Logs are written to logcat (Android) via console.log. No effect on UI.
- *
- * Flip to false before shipping a clean build to end users.
- */
 export const MUSIC_DEBUG = false;
 
 function log(...args: unknown[]): void {
@@ -17,11 +12,6 @@ function log(...args: unknown[]): void {
   }
 }
 
-/**
- * A track the runtime renders. Mirrors the shape of MusicTrack from the
- * editor's type definitions, but declared locally so the runtime has no
- * dependency on the editor's source tree.
- */
 export interface MusicTrackLike {
   id: string;
   title: string;
@@ -33,19 +23,13 @@ export interface MusicListRendererProps {
   tracks: MusicTrackLike[];
   showArtist: boolean;
   autoplay: boolean;
-  /**
-   * Optional GitHub Personal Access Token. Sourced from the project
-   * (`project.assetToken`) and passed down by `RuntimeRenderer`. When
-   * present, it's sent as an `Authorization: Bearer <token>` header on
-   * every request, which is what lets tracks stream from a private
-   * repository.
-   */
   accessToken?: string;
-  /**
-   * Canvas scale factor (canvasWidth / 360). Multiplied into every pixel
-   * value so the widget scales with the design.
-   */
   scale: number;
+  /**
+   * Unique ID for this music component on the page. Used by the audio bus
+   * to coordinate with BGM (one owner plays at a time).
+   */
+  componentId: string;
 }
 
 interface VideoErrorEvent {
@@ -56,18 +40,13 @@ interface VideoErrorEvent {
   };
 }
 
-/**
- * Renders a scrollable list of music tracks. Tapping a track streams it.
- * Exactly one <Video> element drives playback for the whole list — the
- * `source` prop is swapped when the active track changes, which avoids
- * stacking native players.
- */
 export function MusicListRenderer({
   tracks,
   showArtist,
   autoplay,
   accessToken,
   scale,
+  componentId,
 }: MusicListRendererProps): React.ReactElement {
   const videoRef = useRef<VideoRef>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
@@ -76,11 +55,14 @@ export function MusicListRenderer({
   const [boxHeight, setBoxHeight] = useState<number>(0);
   const currentIndexRef = useRef<number>(-1);
 
+  const ownerId = `music:${componentId}`;
+
   const stopCurrent = useCallback((): void => {
     currentIndexRef.current = -1;
     setPlayingId(null);
     setPaused(false);
-  }, []);
+    release(ownerId);
+  }, [ownerId]);
 
   const playIndex = useCallback(
     (index: number): void => {
@@ -93,13 +75,14 @@ export function MusicListRenderer({
       setPlayingId(track.id);
       setPaused(false);
       setLastError(null);
+      takeOver(ownerId);
       log('play', {
         index,
         title: track.title,
         url: track.url.slice(0, 100),
       });
     },
-    [stopCurrent, tracks],
+    [ownerId, stopCurrent, tracks],
   );
 
   const handleEnd = useCallback((): void => {
@@ -124,14 +107,35 @@ export function MusicListRenderer({
       );
       setPlayingId(null);
       setPaused(false);
+      release(ownerId);
     },
-    [tracks],
+    [ownerId, tracks],
   );
 
   const handleLoad = useCallback((): void => {
     const track = tracks[currentIndexRef.current];
-    log('loaded', track?.title, 'duration check pending');
+    log('loaded', track?.title);
   }, [tracks]);
+
+  // Subscribe to the audio bus: when BGM (or another music component)
+  // takes over, pause this one.
+  useEffect(() => {
+    const unsubscribe = subscribe(ownerId, () => {
+      log('taken over by another audio source; pausing');
+      if (playingId !== null) {
+        setPaused(true);
+      }
+    });
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerId]);
+
+  // Release ownership on unmount.
+  useEffect(() => {
+    return () => {
+      release(ownerId);
+    };
+  }, [ownerId]);
 
   // Autoplay first track once on mount.
   useEffect(() => {
@@ -148,12 +152,18 @@ export function MusicListRenderer({
 
       if (playingId === trackId) {
         // Same track: toggle pause/resume.
-        setPaused(p => !p);
+        if (paused) {
+          takeOver(ownerId);
+          setPaused(false);
+        } else {
+          setPaused(true);
+          release(ownerId);
+        }
         return;
       }
       playIndex(index);
     },
-    [playIndex, playingId, tracks],
+    [ownerId, paused, playIndex, playingId, tracks],
   );
 
   if (tracks.length === 0) {
@@ -183,9 +193,6 @@ export function MusicListRenderer({
   const source = currentTrack
     ? {
         uri: currentTrack.url,
-        // Always send Accept: vnd.github.raw — GitHub's contents API uses
-        // this to return the raw bytes instead of a base64 JSON envelope.
-        // Add Authorization only if we have a token.
         headers: accessToken
           ? {
               Authorization: `Bearer ${accessToken}`,
@@ -197,8 +204,6 @@ export function MusicListRenderer({
       }
     : undefined;
 
-  // Row height in pixels. Used for the debug banner and to warn when the
-  // box is too short to render even one row.
   const rowHeightPx = 44 * scale;
   const tooShort = boxHeight > 0 && boxHeight < rowHeightPx;
 
@@ -214,7 +219,6 @@ export function MusicListRenderer({
         overflow: 'hidden',
       }}
     >
-      {/* Single hidden native player. Swapping `source` switches tracks. */}
       {source ? (
         <Video
           ref={videoRef}

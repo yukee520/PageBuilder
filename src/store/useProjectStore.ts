@@ -39,6 +39,18 @@ export interface ProjectStoreState {
   reorderComponents: (pageId: string, orderedIds: string[]) => void;
   toggleComponentVisibility: (pageId: string, componentId: string) => void;
 
+  /**
+   * Sets (or clears) the GitHub Personal Access Token stored on a Music
+   * component. Used to stream tracks from a private repository.
+   *
+   * Pass an empty string to clear the token.
+   */
+  setMusicAccessToken: (
+    pageId: string,
+    componentId: string,
+    token: string,
+  ) => void;
+
   addAction: (
     pageId: string,
     componentId: string,
@@ -298,6 +310,22 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
             ...c,
             visible: !c.visible,
           })) as Page,
+        ),
+      ),
+      dirty: true,
+    });
+  },
+
+  setMusicAccessToken: (pageId, componentId, token) => {
+    const { project } = get();
+    if (!project) return;
+    set({
+      project: touch(
+        mapPages(project, pageId, page =>
+          mapComponents(page, componentId, c => {
+            if (c.type !== 'music') return c;
+            return { ...c, accessToken: token };
+          }) as Page,
         ),
       ),
       dirty: true,

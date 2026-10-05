@@ -23,6 +23,7 @@ export type RootStackParamList = {
   };
   Preview: { projectId: string };
   ProjectSettings: { projectId: string };
+  PageSettings: { projectId: string; pageId: string };
   Build: { projectId: string };
 };
 

@@ -1,11 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import Video, { type VideoRef } from 'react-native-video';
+import { release, subscribe, takeOver } from './audioBus';
 
-/**
- * Set to true to log BGM lifecycle events to logcat (Android).
- * Flip to false before shipping a clean build to end users.
- */
 export const BGM_DEBUG = false;
 
 function log(...args: unknown[]): void {
@@ -16,31 +13,10 @@ function log(...args: unknown[]): void {
 }
 
 export interface BgmPlayerProps {
-  /**
-   * Stable identifier for the current page. When this changes, the player
-   * tears down the previous audio and (if the new page has BGM configured)
-   * starts the new one.
-   */
   pageId: string;
-  /**
-   * Whether the current page has BGM enabled. If false, the player renders
-   * nothing and stops any active audio.
-   */
   enabled: boolean;
-  /**
-   * The audio URL for the current page. Can be a public https:// URL, or
-   * an api.github.com contents URL for a private repo.
-   */
   url: string | undefined;
-  /**
-   * Whether to loop the track when it ends.
-   */
   loop: boolean;
-  /**
-   * Optional project-level GitHub Personal Access Token. When present,
-   * it's sent as `Authorization: Bearer <token>` on every request.
-   * Required for private-repo URLs.
-   */
   accessToken?: string;
 }
 
@@ -51,18 +27,8 @@ interface VideoErrorEvent {
   };
 }
 
-/**
- * Floating background-music control. Renders a small pill in the
- * bottom-right corner of the screen with a play/pause toggle.
- *
- * Behavior:
- *   - When `enabled` is true and `url` is set, the track autoplays.
- *   - When the page changes (`pageId` changes), the previous audio stops.
- *   - If the same URL is reused across pages, the audio is NOT restarted —
- *     the user's play/pause state persists.
- *   - When `enabled` is false or `url` is empty, the player renders
- *     nothing.
- */
+const BGM_OWNER_ID = 'bgm';
+
 export function BgmPlayer({
   pageId,
   enabled,
@@ -75,30 +41,58 @@ export function BgmPlayer({
   const [lastError, setLastError] = useState<string | null>(null);
   const lastUrlRef = useRef<string | undefined>(undefined);
 
-  // When the URL changes, reset the paused state so a new track starts
-  // playing. When only the page changes but the URL is the same, keep
-  // the current play/pause state — the audio shouldn't restart.
   useEffect(() => {
     const urlChanged = lastUrlRef.current !== url;
     lastUrlRef.current = url;
     if (urlChanged) {
       setPaused(false);
       setLastError(null);
+      if (enabled && url) {
+        takeOver(BGM_OWNER_ID);
+      } else {
+        release(BGM_OWNER_ID);
+      }
     }
     log('page changed', { pageId, url: url?.slice(0, 100), urlChanged });
-  }, [pageId, url]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageId, url, enabled]);
+
+  // Subscribe to the audio bus: when a music list takes over, pause BGM.
+  useEffect(() => {
+    const unsubscribe = subscribe(BGM_OWNER_ID, () => {
+      log('taken over by another audio source; pausing');
+      setPaused(true);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Release ownership on unmount.
+  useEffect(() => {
+    return () => {
+      release(BGM_OWNER_ID);
+    };
+  }, []);
 
   const handleToggle = useCallback((): void => {
-    setPaused(p => !p);
+    setPaused(prev => {
+      const next = !prev;
+      if (next) {
+        // About to pause → release ownership so music can play.
+        release(BGM_OWNER_ID);
+      } else {
+        // About to resume → claim ownership (pauses music if active).
+        takeOver(BGM_OWNER_ID);
+      }
+      return next;
+    });
   }, []);
 
   const handleError = useCallback((event: VideoErrorEvent): void => {
     const message = event?.error?.errorString ?? 'Playback failed.';
     const code = event?.error?.errorCode;
     log('playback error', { message, code });
-    setLastError(
-      `${message}${code !== undefined ? ` (${code})` : ''}`,
-    );
+    setLastError(`${message}${code !== undefined ? ` (${code})` : ''}`);
+    release(BGM_OWNER_ID);
   }, []);
 
   const handleLoad = useCallback((): void => {

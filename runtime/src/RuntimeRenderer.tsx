@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Image,
   Pressable,
@@ -11,8 +17,10 @@ import {
 import type { PageComponent, SizePreset } from '../../src/types/component';
 import type { Page } from '../../src/types/project';
 import {
+  MUSIC_DEBUG,
   pauseSound,
   playUrl,
+  probeUrl,
   stopSound,
   type SoundInstance,
 } from './MusicPlayer';
@@ -329,9 +337,7 @@ function renderComponent(
     }
 
     case 'music':
-      return (
-        <MusicListRenderer component={component} scale={scale} />
-      );
+      return <MusicListRenderer component={component} scale={scale} />;
 
     default:
       return null;
@@ -343,11 +349,20 @@ interface MusicListRendererProps {
   scale: number;
 }
 
+interface ProbeResult {
+  ok: boolean;
+  message?: string;
+  durationSec?: number;
+}
+
 function MusicListRenderer({
   component,
   scale,
 }: MusicListRendererProps): React.ReactElement {
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [boxHeight, setBoxHeight] = useState<number>(0);
+  const [probes, setProbes] = useState<Record<string, ProbeResult>>({});
   const soundRef = useRef<SoundInstance>(null);
   const currentIndexRef = useRef<number>(-1);
 
@@ -375,6 +390,7 @@ function MusicListRenderer({
 
       currentIndexRef.current = index;
       setPlayingId(track.id);
+      setLastError(null);
 
       soundRef.current = playUrl(track.url, {
         onFinish: () => {
@@ -385,9 +401,10 @@ function MusicListRenderer({
             playIndex(0);
           }
         },
-        onError: () => {
+        onError: message => {
           soundRef.current = null;
           setPlayingId(null);
+          setLastError(`${track.title || 'Track'}: ${message}`);
         },
       });
     },
@@ -404,11 +421,40 @@ function MusicListRenderer({
   }, []);
 
   useEffect(() => {
-    if (component.autoplay && component.tracks.length > 0 && playingId === null) {
+    if (
+      component.autoplay &&
+      component.tracks.length > 0 &&
+      playingId === null
+    ) {
       playIndex(0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Diagnostic: probe each track's URL once when the list mounts or the
+  // track list changes. This is how we find 404s / encoding failures
+  // without having to guess at the runtime side.
+  useEffect(() => {
+    if (!MUSIC_DEBUG) return;
+    let cancelled = false;
+    const run = async (): Promise<void> => {
+      const results: Record<string, ProbeResult> = {};
+      for (const track of component.tracks) {
+        if (cancelled) return;
+        if (!track.url) {
+          results[track.id] = { ok: false, message: 'no url' };
+          continue;
+        }
+        const r = await probeUrl(track.url);
+        results[track.id] = r;
+      }
+      if (!cancelled) setProbes(results);
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [component.tracks]);
 
   const handleTrackPress = useCallback(
     (trackId: string): void => {
@@ -432,9 +478,15 @@ function MusicListRenderer({
     [component.tracks, playIndex, playingId],
   );
 
+  const handleLayout = useCallback((e: LayoutChangeEvent): void => {
+    const h = e.nativeEvent.layout.height;
+    setBoxHeight(h);
+  }, []);
+
   if (component.tracks.length === 0) {
     return (
       <View
+        onLayout={handleLayout}
         style={{
           flex: 1,
           alignItems: 'center',
@@ -453,8 +505,15 @@ function MusicListRenderer({
     );
   }
 
+  // Height of a single row in pixels. Used both for the diagnostics
+  // banner and (in future phases) for auto-sizing the box.
+  const rowHeightPx = 44 * scale;
+  const requiredHeightPx = rowHeightPx * Math.min(component.tracks.length, 6);
+  const tooShort = boxHeight > 0 && boxHeight < rowHeightPx;
+
   return (
     <View
+      onLayout={handleLayout}
       style={{
         flex: 1,
         backgroundColor: '#FFFFFF',
@@ -464,6 +523,31 @@ function MusicListRenderer({
         overflow: 'hidden',
       }}
     >
+      {MUSIC_DEBUG ? (
+        <View
+          style={{
+            backgroundColor: '#0F172A',
+            paddingHorizontal: 6,
+            paddingVertical: 4,
+          }}
+        >
+          <Text
+            style={{ color: '#F8FAFC', fontSize: 9, fontFamily: 'monospace' }}
+            numberOfLines={4}
+          >
+            {`music debug · tracks=${component.tracks.length} · box=${
+              boxHeight > 0 ? boxHeight.toFixed(0) : '?'
+            }px · row=${rowHeightPx.toFixed(
+              0,
+            )}px · need=${requiredHeightPx.toFixed(
+              0,
+            )}px${tooShort ? ' · TOO SHORT' : ''}${
+              lastError ? `\nerror: ${lastError}` : ''
+            }`}
+          </Text>
+        </View>
+      ) : null}
+
       <ScrollView
         style={{ flex: 1 }}
         nestedScrollEnabled
@@ -471,6 +555,22 @@ function MusicListRenderer({
       >
         {component.tracks.map((track, index) => {
           const isPlaying = playingId === track.id;
+          const probe = probes[track.id];
+          const probeColor =
+            probe === undefined
+              ? '#94A3B8'
+              : probe.ok
+              ? '#16A34A'
+              : '#EF4444';
+          const probeLabel =
+            probe === undefined
+              ? '…'
+              : probe.ok
+              ? 'OK'
+              : probe.message === 'no url'
+              ? 'NO URL'
+              : 'FAIL';
+
           return (
             <Pressable
               key={track.id}
@@ -531,6 +631,18 @@ function MusicListRenderer({
                   </Text>
                 ) : null}
               </View>
+              {MUSIC_DEBUG ? (
+                <Text
+                  style={{
+                    color: probeColor,
+                    fontSize: 9,
+                    fontFamily: 'monospace',
+                    marginLeft: 6,
+                  }}
+                >
+                  {probeLabel}
+                </Text>
+              ) : null}
               {isPlaying ? (
                 <Text style={{ color: '#2563EB', fontSize: 14 * scale }}>
                   ♪

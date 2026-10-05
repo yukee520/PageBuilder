@@ -97,6 +97,21 @@ export interface MusicComponent extends ComponentBase {
   tracks: MusicTrack[];
   showArtist: boolean;
   autoplay: boolean;
+  /**
+   * Optional GitHub Personal Access Token used to stream tracks from a
+   * private repository.
+   *
+   * The URL for each track should point at the GitHub contents API:
+   *   https://api.github.com/repos/{owner}/{repo}/contents/{path}
+   * and the runtime sends this token as an Authorization header along with
+   * `Accept: application/vnd.github.raw`.
+   *
+   * WARNING: this token is stored in project.json and bundled into the built
+   * APK. Anyone with the APK can extract it. Use a fine-grained token scoped
+   * to a single repository, with read-only Contents access, and set an
+   * expiry (90 days recommended). Never use a token with write access.
+   */
+  accessToken?: string;
 }
 
 export type PageComponent =

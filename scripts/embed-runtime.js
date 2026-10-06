@@ -34,6 +34,18 @@ const FILES_TO_EMBED = [
     targetPath: 'runtime/src/audioBus.ts',
   },
   {
+    sourcePath: 'runtime/src/runtimeSettings.ts',
+    targetPath: 'runtime/src/runtimeSettings.ts',
+  },
+  {
+    sourcePath: 'runtime/src/RuntimeSettingsSheet.tsx',
+    targetPath: 'runtime/src/RuntimeSettingsSheet.tsx',
+  },
+  {
+    sourcePath: 'runtime/src/RuntimeSettingsButton.tsx',
+    targetPath: 'runtime/src/RuntimeSettingsButton.tsx',
+  },
+  {
     sourcePath: 'runtime/src/assetResolver.ts',
     targetPath: 'runtime/src/assetResolver.ts',
   },

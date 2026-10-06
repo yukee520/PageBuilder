@@ -924,14 +924,39 @@ function renderContentEditor(
             />
           </View>
 
-          <View className="flex-row items-center justify-between">
-            <Text className="text-sm text-text dark:text-dark-text">
-              Autoplay
-            </Text>
+          <View className="flex-row items-center justify-between mb-3">
+            <View className="flex-1 pr-3">
+              <Text className="text-sm text-text dark:text-dark-text">
+                Autoplay
+              </Text>
+              <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">
+                Plays automatically when the page loads. No play button. BGM
+                pauses while the video plays.
+              </Text>
+            </View>
             <Switch
               value={c.autoPlay}
               onValueChange={value =>
                 patch({ autoPlay: value } as Partial<VideoComponent>)
+              }
+              trackColor={{ false: colors.border, true: colors.primary }}
+            />
+          </View>
+
+          <View className="flex-row items-center justify-between">
+            <View className="flex-1 pr-3">
+              <Text className="text-sm text-text dark:text-dark-text">
+                Loop
+              </Text>
+              <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">
+                Restart from the beginning after the video ends. Only applies
+                to autoplay videos.
+              </Text>
+            </View>
+            <Switch
+              value={c.loop}
+              onValueChange={value =>
+                patch({ loop: value } as Partial<VideoComponent>)
               }
               trackColor={{ false: colors.border, true: colors.primary }}
             />

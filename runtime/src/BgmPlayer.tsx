@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
 import Video, { type VideoRef } from 'react-native-video';
 import { release, subscribe, takeOver } from './audioBus';
 
+/**
+ * Set to true to log BGM lifecycle events to logcat (Android).
+ * Flip to false before shipping a clean build to end users.
+ */
 export const BGM_DEBUG = false;
 
 function log(...args: unknown[]): void {
@@ -13,11 +16,37 @@ function log(...args: unknown[]): void {
 }
 
 export interface BgmPlayerProps {
+  /**
+   * Stable identifier for the current page. When this changes, the player
+   * tears down the previous audio and, if the new page has BGM configured,
+   * starts the new one.
+   */
   pageId: string;
+  /**
+   * Whether the page author enabled BGM for this page. When false, no BGM
+   * plays regardless of user settings.
+   */
   enabled: boolean;
+  /**
+   * The audio URL for the current page. Can be a public https:// URL, or
+   * an api.github.com contents URL for a private repo.
+   */
   url: string | undefined;
+  /**
+   * Whether to loop the track when it ends.
+   */
   loop: boolean;
+  /**
+   * Optional project-level GitHub Personal Access Token. Required only for
+   * private-repo URLs.
+   */
   accessToken?: string;
+  /**
+   * End-user setting: whether BGM should play at all. When false, this
+   * component refuses to claim audio ownership even if the page has BGM
+   * configured.
+   */
+  userEnabled: boolean;
 }
 
 interface VideoErrorEvent {
@@ -29,62 +58,98 @@ interface VideoErrorEvent {
 
 const BGM_OWNER_ID = 'bgm';
 
+/**
+ * Headless background music player.
+ *
+ * Behavior:
+ *   - Plays automatically when the page loads if `enabled` and `userEnabled`
+ *     are both true and `url` is set.
+ *   - Pauses automatically when a music list or video takes over audio.
+ *   - Resumes automatically when that owner releases (via the audio bus's
+ *     `resumePrevious: true` signal).
+ *   - Stops immediately when the user disables BGM in settings.
+ *   - Restarts cleanly when the page changes to one with a different URL.
+ *   - Does not restart when the page changes but the URL is the same.
+ *
+ * Renders a hidden `<Video>` element when playing. Renders nothing when
+ * disabled.
+ */
 export function BgmPlayer({
   pageId,
   enabled,
   url,
   loop,
   accessToken,
+  userEnabled,
 }: BgmPlayerProps): React.ReactElement | null {
   const videoRef = useRef<VideoRef>(null);
   const [paused, setPaused] = useState<boolean>(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const lastUrlRef = useRef<string | undefined>(undefined);
 
+  const shouldPlay = enabled && userEnabled && !!url;
+
+  // React to URL, page, and enabled-flag changes.
   useEffect(() => {
     const urlChanged = lastUrlRef.current !== url;
     lastUrlRef.current = url;
+
     if (urlChanged) {
       setPaused(false);
       setLastError(null);
-      if (enabled && url) {
-        takeOver(BGM_OWNER_ID);
-      } else {
-        release(BGM_OWNER_ID);
-      }
     }
-    log('page changed', { pageId, url: url?.slice(0, 100), urlChanged });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageId, url, enabled]);
 
-  // Subscribe to the audio bus: when a music list takes over, pause BGM.
+    if (!shouldPlay) {
+      // Page has no BGM, or the user turned it off.
+      release(BGM_OWNER_ID);
+      log('stop (not configured or disabled)', { pageId });
+      return;
+    }
+
+    if (urlChanged) {
+      // New track — grab ownership and start.
+      takeOver(BGM_OWNER_ID);
+      log('start new track', { pageId, url: url?.slice(0, 100) });
+    } else {
+      // Same track, same page state — only assert ownership if nothing
+      // else is currently playing. This handles the case where the user
+      // re-enabled BGM in settings and nothing else owns audio.
+      takeOver(BGM_OWNER_ID);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageId, url, shouldPlay]);
+
+  // Subscribe to the audio bus.
+  //
+  // `onStop` fires when a music list or video claims audio — we pause BGM.
+  // `onResume` fires when that owner releases with `resumePrevious: true`,
+  // i.e. the user paused a music track or a video ended. If BGM is still
+  // allowed to play, resume.
   useEffect(() => {
-    const unsubscribe = subscribe(BGM_OWNER_ID, () => {
-      log('taken over by another audio source; pausing');
-      setPaused(true);
-    });
+    const unsubscribe = subscribe(
+      BGM_OWNER_ID,
+      () => {
+        log('taken over by another audio source; pausing');
+        setPaused(true);
+      },
+      () => {
+        log('resume requested by bus');
+        // Only resume if we're still supposed to play.
+        setPaused(prev => {
+          if (!shouldPlay) return prev;
+          return false;
+        });
+      },
+    );
     return unsubscribe;
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldPlay]);
 
   // Release ownership on unmount.
   useEffect(() => {
     return () => {
       release(BGM_OWNER_ID);
     };
-  }, []);
-
-  const handleToggle = useCallback((): void => {
-    setPaused(prev => {
-      const next = !prev;
-      if (next) {
-        // About to pause → release ownership so music can play.
-        release(BGM_OWNER_ID);
-      } else {
-        // About to resume → claim ownership (pauses music if active).
-        takeOver(BGM_OWNER_ID);
-      }
-      return next;
-    });
   }, []);
 
   const handleError = useCallback((event: VideoErrorEvent): void => {
@@ -99,12 +164,12 @@ export function BgmPlayer({
     log('loaded');
   }, []);
 
-  if (!enabled || !url) {
+  if (!shouldPlay) {
     return null;
   }
 
   const source = {
-    uri: url,
+    uri: url!,
     headers: accessToken
       ? {
           Authorization: `Bearer ${accessToken}`,
@@ -116,66 +181,17 @@ export function BgmPlayer({
   };
 
   return (
-    <>
-      <Video
-        ref={videoRef}
-        source={source}
-        paused={paused}
-        repeat={loop}
-        onError={handleError}
-        onLoad={handleLoad}
-        style={{ width: 0, height: 0, position: 'absolute' }}
-        playInBackground={false}
-        playWhenInactive={false}
-        ignoreSilentSwitch="ignore"
-      />
-
-      <Pressable
-        onPress={handleToggle}
-        style={{
-          position: 'absolute',
-          right: 16,
-          bottom: 24,
-          width: 44,
-          height: 44,
-          borderRadius: 22,
-          backgroundColor: 'rgba(37, 99, 235, 0.9)',
-          alignItems: 'center',
-          justifyContent: 'center',
-          shadowColor: '#000',
-          shadowOpacity: 0.25,
-          shadowRadius: 6,
-          shadowOffset: { width: 0, height: 3 },
-          elevation: 6,
-        }}
-        accessibilityRole="button"
-        accessibilityLabel={paused ? 'Play background music' : 'Pause background music'}
-      >
-        <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '700' }}>
-          {paused ? '▶' : '❚❚'}
-        </Text>
-        {lastError && BGM_DEBUG ? (
-          <View
-            style={{
-              position: 'absolute',
-              bottom: -28,
-              right: 0,
-              backgroundColor: '#0F172A',
-              paddingHorizontal: 6,
-              paddingVertical: 2,
-              borderRadius: 4,
-              maxWidth: 240,
-            }}
-          >
-            <Text
-              style={{ color: '#FCA5A5', fontSize: 8 }}
-              numberOfLines={2}
-            >
-              {lastError}
-            </Text>
-          </View>
-        ) : null}
-      </Pressable>
-    </>
+    <Video
+      ref={videoRef}
+      source={source}
+      paused={paused}
+      repeat={loop}
+      onError={handleError}
+      onLoad={handleLoad}
+      style={{ width: 0, height: 0, position: 'absolute' }}
+      playInBackground={false}
+      playWhenInactive={false}
+      ignoreSilentSwitch="ignore"
+    />
   );
 }

@@ -27,7 +27,7 @@ export interface MusicListRendererProps {
   scale: number;
   /**
    * Unique ID for this music component on the page. Used by the audio bus
-   * to coordinate with BGM (one owner plays at a time).
+   * to coordinate with BGM and video (one owner plays at a time).
    */
   componentId: string;
 }
@@ -57,18 +57,28 @@ export function MusicListRenderer({
 
   const ownerId = `music:${componentId}`;
 
-  const stopCurrent = useCallback((): void => {
+  /**
+   * Stop playback and release audio ownership so BGM can resume.
+   * Used when the user pauses a track, when the component unmounts, or
+   * on error. Natural track advance does NOT call this — BGM stays paused
+   * during a full playlist play-through.
+   */
+  const stopAndRelease = useCallback((): void => {
     currentIndexRef.current = -1;
     setPlayingId(null);
     setPaused(false);
-    release(ownerId);
+    release(ownerId, { resumePrevious: true });
   }, [ownerId]);
 
+  /**
+   * Start (or resume) playback of the track at `index`.
+   * Claims audio ownership, which pauses BGM via the bus.
+   */
   const playIndex = useCallback(
     (index: number): void => {
       const track = tracks[index];
       if (!track || !track.url) {
-        stopCurrent();
+        stopAndRelease();
         return;
       }
       currentIndexRef.current = index;
@@ -82,9 +92,14 @@ export function MusicListRenderer({
         url: track.url.slice(0, 100),
       });
     },
-    [ownerId, stopCurrent, tracks],
+    [ownerId, stopAndRelease, tracks],
   );
 
+  /**
+   * Natural track end. Advances to the next track, wrapping to the first
+   * after the last. Does NOT release ownership — BGM stays paused across
+   * the entire playlist.
+   */
   const handleEnd = useCallback((): void => {
     const next = currentIndexRef.current + 1;
     if (next < tracks.length) {
@@ -105,11 +120,9 @@ export function MusicListRenderer({
           code !== undefined ? ` (${code})` : ''
         }`,
       );
-      setPlayingId(null);
-      setPaused(false);
-      release(ownerId);
+      stopAndRelease();
     },
-    [ownerId, tracks],
+    [stopAndRelease, tracks],
   );
 
   const handleLoad = useCallback((): void => {
@@ -117,8 +130,12 @@ export function MusicListRenderer({
     log('loaded', track?.title);
   }, [tracks]);
 
-  // Subscribe to the audio bus: when BGM (or another music component)
-  // takes over, pause this one.
+  // Subscribe to the audio bus.
+  //
+  // `onStop` fires when BGM or a video claims audio — we pause the current
+  // track, but we don't release ownership (that would trigger a resume of
+  // the very owner that just took over). We just flip `paused` to true so
+  // the native player stops emitting sound.
   useEffect(() => {
     const unsubscribe = subscribe(ownerId, () => {
       log('taken over by another audio source; pausing');
@@ -130,10 +147,11 @@ export function MusicListRenderer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerId]);
 
-  // Release ownership on unmount.
+  // Release ownership on unmount, with `resumePrevious: true` so BGM
+  // resumes if the user navigates away while music was playing.
   useEffect(() => {
     return () => {
-      release(ownerId);
+      release(ownerId, { resumePrevious: true });
     };
   }, [ownerId]);
 
@@ -151,16 +169,20 @@ export function MusicListRenderer({
       if (index < 0) return;
 
       if (playingId === trackId) {
-        // Same track: toggle pause/resume.
+        // Same track tapped again.
         if (paused) {
+          // Resume: claim ownership back (pauses BGM again).
           takeOver(ownerId);
           setPaused(false);
         } else {
+          // Pause: release ownership (BGM resumes).
           setPaused(true);
-          release(ownerId);
+          release(ownerId, { resumePrevious: true });
         }
         return;
       }
+
+      // Different track tapped: switch to it and play.
       playIndex(index);
     },
     [ownerId, paused, playIndex, playingId, tracks],

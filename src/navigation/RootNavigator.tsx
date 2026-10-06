@@ -6,6 +6,7 @@ import ComponentEditScreen from '@/screens/ComponentEditScreen';
 import ActionEditScreen from '@/screens/ActionEditScreen';
 import PreviewScreen from '@/screens/PreviewScreen';
 import ProjectSettingsScreen from '@/screens/ProjectSettingsScreen';
+import PageSettingsScreen from '@/screens/PageSettingsScreen';
 import BuildScreen from '@/screens/BuildScreen';
 import { useTheme } from '@/hooks/useTheme';
 import type { RootStackParamList } from '@/navigation/types';
@@ -33,6 +34,7 @@ export default function RootNavigator(): React.ReactElement {
         options={{ animation: 'slide_from_bottom' }}
       />
       <Stack.Screen name="ProjectSettings" component={ProjectSettingsScreen} />
+      <Stack.Screen name="PageSettings" component={PageSettingsScreen} />
       <Stack.Screen
         name="Build"
         component={BuildScreen}

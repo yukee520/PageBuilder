@@ -1,13 +1,17 @@
 /**
- * Canvas is a fixed-aspect virtual screen. All positions/sizes are
- * stored as fractions (0..1) of the canvas. At render time, we scale the
- * canvas to fit the real screen and letterbox the excess with a
- * background color.
+ * Canvas is a full-bleed layout. All positions/sizes are stored as
+ * fractions (0..1) of the available area.
  *
- * Aspect ratio chosen: 360:800 (matches common Android phones).
+ * Earlier versions locked the canvas to a 360:800 aspect ratio and
+ * letterboxed the excess. That produced visible gaps on phones whose
+ * screen shape differed from the reference. The canvas now stretches to
+ * fill whatever space it is given, so the design uses every pixel.
+ *
+ * `scale` is derived from the smaller dimension relative to the reference
+ * (360 x 800) so that text, borders, and corner radii stay proportional
+ * and readable on both narrow phones and wide tablets.
  */
 
-export const CANVAS_ASPECT = 360 / 800;
 export const CANVAS_REFERENCE_WIDTH = 360;
 export const CANVAS_REFERENCE_HEIGHT = 800;
 
@@ -28,21 +32,15 @@ export function computeCanvasLayout(
   screenWidth: number,
   screenHeight: number,
 ): CanvasLayout {
-  const screenAspect = screenWidth / screenHeight;
-  let canvasWidth: number;
-  let canvasHeight: number;
+  const canvasWidth = screenWidth;
+  const canvasHeight = screenHeight;
 
-  if (screenAspect > CANVAS_ASPECT) {
-    canvasHeight = screenHeight;
-    canvasWidth = canvasHeight * CANVAS_ASPECT;
-  } else {
-    canvasWidth = screenWidth;
-    canvasHeight = canvasWidth / CANVAS_ASPECT;
-  }
-
-  const offsetX = (screenWidth - canvasWidth) / 2;
-  const offsetY = (screenHeight - canvasHeight) / 2;
-  const scale = canvasWidth / CANVAS_REFERENCE_WIDTH;
+  // Scale by the smaller of the two normalized dimensions so text and
+  // borders don't blow up on high-density or very wide screens.
+  const scale = Math.min(
+    canvasWidth / CANVAS_REFERENCE_WIDTH,
+    canvasHeight / CANVAS_REFERENCE_HEIGHT,
+  );
 
   return {
     screenWidth,
@@ -50,8 +48,8 @@ export function computeCanvasLayout(
     scale,
     canvasWidth,
     canvasHeight,
-    offsetX,
-    offsetY,
+    offsetX: 0,
+    offsetY: 0,
   };
 }
 
@@ -76,14 +74,8 @@ export function clampFractionBox(
   width: number,
   height: number,
 ): { x: number; y: number; width: number; height: number } {
-  const w = Math.max(
-    MIN_COMPONENT_WIDTH_FRAC,
-    Math.min(width, 1),
-  );
-  const h = Math.max(
-    MIN_COMPONENT_HEIGHT_FRAC,
-    Math.min(height, 1),
-  );
+  const w = Math.max(MIN_COMPONENT_WIDTH_FRAC, Math.min(width, 1));
+  const h = Math.max(MIN_COMPONENT_HEIGHT_FRAC, Math.min(height, 1));
   const minX = -0.5;
   const minY = -0.5;
   const maxX = 1 - w + 0.5;

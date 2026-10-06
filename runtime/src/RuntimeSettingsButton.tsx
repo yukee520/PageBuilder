@@ -1,25 +1,19 @@
 import React from 'react';
-import { Pressable, Text } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 export interface RuntimeSettingsButtonProps {
   onPress: () => void;
 }
 
 /**
- * A small semi-transparent gear button that floats in the top-right corner
- * of the screen. Tapping it opens the runtime settings sheet.
+ * A small pill-shaped settings button that floats in the top-right corner.
  *
- * Design choices:
- *   - 36x36 tap target, ~0.6 alpha so it's visible but doesn't fight with
- *     the page design.
- *   - Positioned absolutely; sits above all page content (rendered after
- *     RuntimeRenderer in App.tsx).
- *   - `hitSlop` extends the actual touch area to 56x56 without enlarging
- *     the visual, so it's easy to tap on small screens.
- *   - Uses a text glyph (⚙) rather than an icon library, since the runtime
- *     is not supposed to depend on `react-native-vector-icons` — that
- *     package is in the template but it's heavyweight and I'd rather keep
- *     the runtime's dependency surface small.
+ * Design:
+ *   - 40x40 rounded (radius 20), light frosted-glass look.
+ *   - Semi-transparent white backdrop with a thin border, so it reads as a
+ *     control on any background without stealing attention.
+ *   - Uses the ⚙ glyph; swap for an icon component if you prefer.
+ *   - `hitSlop` extends the tap area beyond the visual for easier tapping.
  */
 export function RuntimeSettingsButton({
   onPress,
@@ -27,32 +21,53 @@ export function RuntimeSettingsButton({
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       style={{
         position: 'absolute',
-        top: 12,
-        right: 12,
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: 'rgba(15, 23, 42, 0.55)',
+        top: 14,
+        right: 14,
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: 'rgba(255, 255, 255, 0.75)',
+        borderWidth: 1,
+        borderColor: 'rgba(15, 23, 42, 0.12)',
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 1000,
+        // Soft shadow for depth. iOS uses shadow*, Android uses elevation.
+        shadowColor: '#0F172A',
+        shadowOpacity: 0.15,
+        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 2 },
+        elevation: 3,
       }}
       accessibilityRole="button"
       accessibilityLabel="Settings"
     >
-      <Text
+      <View
         style={{
-          color: '#FFFFFF',
-          fontSize: 18,
-          lineHeight: 20,
-          fontWeight: '600',
+          width: 20,
+          height: 20,
+          alignItems: 'center',
+          justifyContent: 'center',
         }}
       >
-        ⚙
-      </Text>
+        <Text
+          style={{
+            color: '#334155',
+            fontSize: 17,
+            lineHeight: 20,
+            fontWeight: '500',
+            // Center the glyph vertically. Different platforms render ⚙
+            // with slightly different baselines.
+            includeFontPadding: false,
+            textAlign: 'center',
+          }}
+        >
+          ⚙
+        </Text>
+      </View>
     </Pressable>
   );
 }

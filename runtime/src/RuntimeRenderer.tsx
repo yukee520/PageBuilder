@@ -26,8 +26,8 @@ export interface RuntimeRendererProps {
   projectAssetToken?: string;
 }
 
-const CANVAS_ASPECT = 360 / 800;
 const CANVAS_REFERENCE_WIDTH = 360;
+const CANVAS_REFERENCE_HEIGHT = 800;
 
 interface CanvasLayout {
   scale: number;
@@ -38,21 +38,21 @@ interface CanvasLayout {
 }
 
 function computeLayout(screenW: number, screenH: number): CanvasLayout {
-  const screenAspect = screenW / screenH;
-  let canvasWidth: number;
-  let canvasHeight: number;
+  // Full-bleed: the canvas fills the available area. No aspect-ratio
+  // letterbox. Positions and sizes are still stored as fractions, so the
+  // design stretches to fit any phone or tablet.
+  const canvasWidth = screenW;
+  const canvasHeight = screenH;
+  const offsetX = 0;
+  const offsetY = 0;
 
-  if (screenAspect > CANVAS_ASPECT) {
-    canvasHeight = screenH;
-    canvasWidth = canvasHeight * CANVAS_ASPECT;
-  } else {
-    canvasWidth = screenW;
-    canvasHeight = canvasWidth / CANVAS_ASPECT;
-  }
-
-  const offsetX = (screenW - canvasWidth) / 2;
-  const offsetY = (screenH - canvasHeight) / 2;
-  const scale = canvasWidth / CANVAS_REFERENCE_WIDTH;
+  // Scale text and borders by the smaller dimension relative to the
+  // reference canvas so type stays readable on narrow phones and doesn't
+  // blow up on high-density or wide screens.
+  const scale = Math.min(
+    canvasWidth / CANVAS_REFERENCE_WIDTH,
+    canvasHeight / CANVAS_REFERENCE_HEIGHT,
+  );
 
   return { scale, offsetX, offsetY, canvasWidth, canvasHeight };
 }

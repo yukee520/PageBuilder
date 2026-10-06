@@ -12,6 +12,13 @@ import {
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import RuntimeRenderer from './src/RuntimeRenderer';
 import { BgmPlayer } from './src/BgmPlayer';
+import { RuntimeSettingsButton } from './src/RuntimeSettingsButton';
+import { RuntimeSettingsSheet } from './src/RuntimeSettingsSheet';
+import {
+  DEFAULT_RUNTIME_SETTINGS,
+  loadRuntimeSettings,
+  type RuntimeSettings,
+} from './src/runtimeSettings';
 import {
   handleAction,
   resolveStartPage,
@@ -36,7 +43,7 @@ import projectEnvelope from '../project.json';
  * Set to false to hide the on-device asset debug overlay.
  * Flip to false before shipping a clean build to end users.
  */
-const SHOW_ASSET_DEBUG = true;
+const SHOW_ASSET_DEBUG = false;
 
 interface ProjectEnvelope {
   version: number;
@@ -58,6 +65,10 @@ export default function App(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [debug, setDebug] = useState<AssetDebugInfo | null>(null);
   const [showDebug, setShowDebug] = useState<boolean>(SHOW_ASSET_DEBUG);
+  const [settingsVisible, setSettingsVisible] = useState<boolean>(false);
+  const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings>(
+    DEFAULT_RUNTIME_SETTINGS,
+  );
 
   const [state, setState] = useState<RuntimeState>({
     activePageId: null,
@@ -86,12 +97,16 @@ export default function App(): React.ReactElement {
         const loaded = readProject();
         if (cancelled) return;
 
-        const progress = await loadProgress(loaded.id);
+        const [progress, savedSettings] = await Promise.all([
+          loadProgress(loaded.id),
+          loadRuntimeSettings(loaded.id),
+        ]);
         if (cancelled) return;
 
         const startId = resolveStartPage(loaded, progress);
 
         setProject(loaded);
+        setRuntimeSettings(savedSettings);
         setState(prev => ({
           ...prev,
           activePageId: startId,
@@ -166,6 +181,21 @@ export default function App(): React.ReactElement {
       }
     },
     [activePage],
+  );
+
+  const handleOpenSettings = useCallback((): void => {
+    setSettingsVisible(true);
+  }, []);
+
+  const handleCloseSettings = useCallback((): void => {
+    setSettingsVisible(false);
+  }, []);
+
+  const handleSettingsChanged = useCallback(
+    (next: RuntimeSettings): void => {
+      setRuntimeSettings(next);
+    },
+    [],
   );
 
   if (loading) {
@@ -251,7 +281,10 @@ export default function App(): React.ReactElement {
             url={bgmUrl}
             loop={bgmLoop}
             accessToken={assetToken}
+            userEnabled={runtimeSettings.bgmEnabled}
           />
+
+          <RuntimeSettingsButton onPress={handleOpenSettings} />
 
           {showDebug && debug ? (
             <View
@@ -283,17 +316,9 @@ export default function App(): React.ReactElement {
                 <Text style={{ color: '#FFF', fontSize: 10 }}>
                   filesCopied: {debug.filesCopied}
                 </Text>
-                <Text style={{ color: '#FFF', fontSize: 10, marginTop: 4 }}>
-                  files:
+                <Text style={{ color: '#FFF', fontSize: 10 }}>
+                  bgm user setting: {String(runtimeSettings.bgmEnabled)}
                 </Text>
-                {debug.fileNames.map(n => (
-                  <Text
-                    key={n}
-                    style={{ color: '#FF0', fontSize: 10, marginLeft: 6 }}
-                  >
-                    • {n}
-                  </Text>
-                ))}
                 {debug.errors.length > 0 ? (
                   <>
                     <Text style={{ color: '#F00', fontSize: 10, marginTop: 4 }}>
@@ -319,6 +344,15 @@ export default function App(): React.ReactElement {
             </View>
           ) : null}
         </View>
+
+        <RuntimeSettingsSheet
+          visible={settingsVisible}
+          onClose={handleCloseSettings}
+          projectId={project.id}
+          projectName={project.name}
+          appVersion={project.version}
+          onSettingsChanged={handleSettingsChanged}
+        />
       </SafeAreaView>
     </GestureHandlerRootView>
   );

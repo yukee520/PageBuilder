@@ -62,7 +62,22 @@ export interface ImageComponent extends ComponentBase {
 export interface VideoComponent extends ComponentBase {
   type: 'video';
   url: string;
+  /**
+   * When true, the video plays automatically when the page loads, renders
+   * inline (no controls, no play button), and pauses BGM for its duration.
+   * When false, the component shows a play button; tapping opens a
+   * full-screen player with standard controls.
+   */
   autoPlay: boolean;
+  /**
+   * When true, the video restarts from the beginning after it ends.
+   * Autoplay videos often loop (decorative backgrounds). Manual videos
+   * usually don't (they're content).
+   *
+   * Only meaningful when `autoPlay` is true. Manual videos always end
+   * and close the modal, regardless of this flag.
+   */
+  loop: boolean;
 }
 
 export interface ButtonComponent extends ComponentBase {

@@ -8,6 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import RuntimeRenderer from './src/RuntimeRenderer';
 import { BgmPlayer } from './src/BgmPlayer';
@@ -200,20 +201,21 @@ export default function App(): React.ReactElement {
   if (loading) {
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
-        <View
+        <StatusBar barStyle="dark-content" />
+        <SafeAreaView
           style={{
             flex: 1,
             alignItems: 'center',
             justifyContent: 'center',
             backgroundColor: '#F8FAFC',
           }}
+          edges={['top', 'bottom']}
         >
           <ActivityIndicator size="large" color="#2563EB" />
           <Text style={{ marginTop: 12, color: '#64748B' }}>
             Loading your app…
           </Text>
-        </View>
+        </SafeAreaView>
       </GestureHandlerRootView>
     );
   }
@@ -221,8 +223,8 @@ export default function App(): React.ReactElement {
   if (error || !project || !activePage) {
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
-        <View
+        <StatusBar barStyle="dark-content" />
+        <SafeAreaView
           style={{
             flex: 1,
             alignItems: 'center',
@@ -230,6 +232,7 @@ export default function App(): React.ReactElement {
             paddingHorizontal: 24,
             backgroundColor: '#F8FAFC',
           }}
+          edges={['top', 'bottom']}
         >
           <Text
             style={{
@@ -251,99 +254,103 @@ export default function App(): React.ReactElement {
           >
             {error ?? 'The project data is missing.'}
           </Text>
-        </View>
+        </SafeAreaView>
       </GestureHandlerRootView>
     );
   }
 
   const bgmEnabled = activePage.bgmEnabled === true && !!activePage.bgmUrl;
   const bgmUrl = activePage.bgmUrl;
-  const bgmLoop = activePage.bgmLoop !== false; // default true
+  const bgmLoop = activePage.bgmLoop !== false;
   const assetToken = project.assetToken;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
-      <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-        <RuntimeRenderer
-          page={activePage}
-          variables={state.variables}
-          hiddenComponentIds={state.hiddenComponentIds}
-          onComponentPress={onComponentPress}
-          onInputChange={onInputChange}
-          canvasBackgroundColor="#FFFFFF"
-          projectAssetToken={assetToken}
-        />
+      <StatusBar barStyle="dark-content" />
+      <SafeAreaView
+        style={{ flex: 1, backgroundColor: '#FFFFFF' }}
+        edges={['top', 'bottom']}
+      >
+        <View style={{ flex: 1 }}>
+          <RuntimeRenderer
+            page={activePage}
+            variables={state.variables}
+            hiddenComponentIds={state.hiddenComponentIds}
+            onComponentPress={onComponentPress}
+            onInputChange={onInputChange}
+            canvasBackgroundColor="#FFFFFF"
+            projectAssetToken={assetToken}
+          />
 
-        <BgmPlayer
-          pageId={activePage.id}
-          enabled={bgmEnabled}
-          url={bgmUrl}
-          loop={bgmLoop}
-          accessToken={assetToken}
-          userEnabled={runtimeSettings.bgmEnabled}
-        />
+          <BgmPlayer
+            pageId={activePage.id}
+            enabled={bgmEnabled}
+            url={bgmUrl}
+            loop={bgmLoop}
+            accessToken={assetToken}
+            userEnabled={runtimeSettings.bgmEnabled}
+          />
 
-        <RuntimeSettingsButton onPress={handleOpenSettings} />
+          <RuntimeSettingsButton onPress={handleOpenSettings} />
 
-        {showDebug && debug ? (
-          <View
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              backgroundColor: 'rgba(0,0,0,0.85)',
-              paddingTop: 40,
-              paddingHorizontal: 12,
-              paddingBottom: 12,
-            }}
-            pointerEvents="box-none"
-          >
-            <ScrollView style={{ maxHeight: 220 }} pointerEvents="box-none">
-              <Text style={{ color: '#0F0', fontSize: 10, fontWeight: '700' }}>
-                ASSET DEBUG
-              </Text>
-              <Text style={{ color: '#FFF', fontSize: 10, marginTop: 2 }}>
-                attempted: {String(debug.attempted)}
-              </Text>
-              <Text style={{ color: '#FFF', fontSize: 10 }}>
-                cacheDir exists: {String(debug.cacheDirExists)}
-              </Text>
-              <Text style={{ color: '#FFF', fontSize: 10 }}>
-                filesFound: {debug.filesFound}
-              </Text>
-              <Text style={{ color: '#FFF', fontSize: 10 }}>
-                filesCopied: {debug.filesCopied}
-              </Text>
-              <Text style={{ color: '#FFF', fontSize: 10 }}>
-                bgm user setting: {String(runtimeSettings.bgmEnabled)}
-              </Text>
-              {debug.errors.length > 0 ? (
-                <>
-                  <Text style={{ color: '#F00', fontSize: 10, marginTop: 4 }}>
-                    errors:
-                  </Text>
-                  {debug.errors.map((e, i) => (
-                    <Text
-                      key={`${i}-${e}`}
-                      style={{ color: '#F88', fontSize: 10, marginLeft: 6 }}
-                    >
-                      • {e}
-                    </Text>
-                  ))}
-                </>
-              ) : null}
-            </ScrollView>
-            <Text
-              style={{ color: '#0AF', fontSize: 10, marginTop: 4 }}
-              onPress={() => setShowDebug(false)}
+          {showDebug && debug ? (
+            <View
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                backgroundColor: 'rgba(0,0,0,0.85)',
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+              }}
+              pointerEvents="box-none"
             >
-              Tap to hide
-            </Text>
-          </View>
-        ) : null}
-      </View>
+              <ScrollView style={{ maxHeight: 220 }} pointerEvents="box-none">
+                <Text style={{ color: '#0F0', fontSize: 10, fontWeight: '700' }}>
+                  ASSET DEBUG
+                </Text>
+                <Text style={{ color: '#FFF', fontSize: 10, marginTop: 2 }}>
+                  attempted: {String(debug.attempted)}
+                </Text>
+                <Text style={{ color: '#FFF', fontSize: 10 }}>
+                  cacheDir exists: {String(debug.cacheDirExists)}
+                </Text>
+                <Text style={{ color: '#FFF', fontSize: 10 }}>
+                  filesFound: {debug.filesFound}
+                </Text>
+                <Text style={{ color: '#FFF', fontSize: 10 }}>
+                  filesCopied: {debug.filesCopied}
+                </Text>
+                <Text style={{ color: '#FFF', fontSize: 10 }}>
+                  bgm user setting: {String(runtimeSettings.bgmEnabled)}
+                </Text>
+                {debug.errors.length > 0 ? (
+                  <>
+                    <Text style={{ color: '#F00', fontSize: 10, marginTop: 4 }}>
+                      errors:
+                    </Text>
+                    {debug.errors.map((e, i) => (
+                      <Text
+                        key={`${i}-${e}`}
+                        style={{ color: '#F88', fontSize: 10, marginLeft: 6 }}
+                      >
+                        • {e}
+                      </Text>
+                    ))}
+                  </>
+                ) : null}
+              </ScrollView>
+              <Text
+                style={{ color: '#0AF', fontSize: 10, marginTop: 4 }}
+                onPress={() => setShowDebug(false)}
+              >
+                Tap to hide
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </SafeAreaView>
 
       <RuntimeSettingsSheet
         visible={settingsVisible}

@@ -442,50 +442,52 @@ export default function EditorScreen(): React.ReactElement {
         onManagePages={handleOpenProjectSettings}
       />
 
-      <View className="flex-1 bg-white dark:bg-dark-background">
-        <PageViewRenderer
-          page={activePage}
-          editable={!previewMode}
-          selectedComponentId={selectedId}
-          onSelectComponent={handleSelectComponent}
-          onComponentChange={handleComponentChange}
-          onRequestEdit={handleRequestEdit}
-          onComponentPress={component => {
-            if (component.actions.length === 0) return;
-            for (const action of component.actions) {
-              if (action.type === 'navigate' && action.pageId) {
-                setActivePage(action.pageId);
-              } else if (action.type === 'showAlert') {
-                Alert.alert(
-                  action.title || 'Notice',
-                  action.message || '',
-                );
-              } else if (action.type === 'openUrl' && action.url) {
-                Alert.alert('Link', action.url);
+      <View className="flex-1 bg-slate-300 dark:bg-slate-950">
+        <View className="flex-1 m-2 rounded-2xl overflow-hidden">
+          <PageViewRenderer
+            page={activePage}
+            editable={!previewMode}
+            selectedComponentId={selectedId}
+            onSelectComponent={handleSelectComponent}
+            onComponentChange={handleComponentChange}
+            onRequestEdit={handleRequestEdit}
+            onComponentPress={component => {
+              if (component.actions.length === 0) return;
+              for (const action of component.actions) {
+                if (action.type === 'navigate' && action.pageId) {
+                  setActivePage(action.pageId);
+                } else if (action.type === 'showAlert') {
+                  Alert.alert(
+                    action.title || 'Notice',
+                    action.message || '',
+                  );
+                } else if (action.type === 'openUrl' && action.url) {
+                  Alert.alert('Link', action.url);
+                }
               }
-            }
-          }}
-          inputValues={{}}
-          canvasBackgroundColor="#FFFFFF"
-        />
-
-        {!previewMode ? (
-          <Pressable
-            onPress={() => setShowPicker(true)}
-            className="absolute right-5 bottom-6 w-14 h-14 rounded-full bg-primary items-center justify-center active:opacity-80"
-            style={{
-              shadowColor: '#000',
-              shadowOpacity: 0.25,
-              shadowRadius: 6,
-              shadowOffset: { width: 0, height: 3 },
-              elevation: 6,
             }}
-            accessibilityRole="button"
-            accessibilityLabel="Add component"
-          >
-            <Ionicons name="add" size={28} color="#FFFFFF" />
-          </Pressable>
-        ) : null}
+            inputValues={{}}
+            canvasBackgroundColor="#FFFFFF"
+          />
+
+          {!previewMode ? (
+            <Pressable
+              onPress={() => setShowPicker(true)}
+              className="absolute right-5 bottom-6 w-14 h-14 rounded-full bg-primary items-center justify-center active:opacity-80"
+              style={{
+                shadowColor: '#000',
+                shadowOpacity: 0.25,
+                shadowRadius: 6,
+                shadowOffset: { width: 0, height: 3 },
+                elevation: 6,
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Add component"
+            >
+              <Ionicons name="add" size={28} color="#FFFFFF" />
+            </Pressable>
+          ) : null}
+        </View>
       </View>
 
       {selectedComponent && !previewMode ? (

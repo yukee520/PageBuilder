@@ -1,17 +1,18 @@
 /**
- * Canvas is a full-bleed layout. All positions/sizes are stored as
- * fractions (0..1) of the available area.
+ * Editor canvas: a fixed-aspect virtual screen. All positions/sizes are
+ * stored as fractions (0..1) of the canvas. At render time in the editor,
+ * we scale the canvas to fit the available space and letterbox the excess
+ * with a background color, so the design is always visible in full.
  *
- * Earlier versions locked the canvas to a 360:800 aspect ratio and
- * letterboxed the excess. That produced visible gaps on phones whose
- * screen shape differed from the reference. The canvas now stretches to
- * fill whatever space it is given, so the design uses every pixel.
+ * The *runtime* (built APK) does NOT use this function. It uses
+ * `computeRuntimeLayout` in the runtime's RuntimeRenderer, which stretches
+ * the canvas edge-to-edge. This means the design stretches slightly to
+ * fit each device — accepted trade-off for a true full-screen app.
  *
- * `scale` is derived from the smaller dimension relative to the reference
- * (360 x 800) so that text, borders, and corner radii stay proportional
- * and readable on both narrow phones and wide tablets.
+ * Aspect ratio chosen: 360:800 (matches common Android phones).
  */
 
+export const CANVAS_ASPECT = 360 / 800;
 export const CANVAS_REFERENCE_WIDTH = 360;
 export const CANVAS_REFERENCE_HEIGHT = 800;
 
@@ -32,15 +33,21 @@ export function computeCanvasLayout(
   screenWidth: number,
   screenHeight: number,
 ): CanvasLayout {
-  const canvasWidth = screenWidth;
-  const canvasHeight = screenHeight;
+  const screenAspect = screenWidth / screenHeight;
+  let canvasWidth: number;
+  let canvasHeight: number;
 
-  // Scale by the smaller of the two normalized dimensions so text and
-  // borders don't blow up on high-density or very wide screens.
-  const scale = Math.min(
-    canvasWidth / CANVAS_REFERENCE_WIDTH,
-    canvasHeight / CANVAS_REFERENCE_HEIGHT,
-  );
+  if (screenAspect > CANVAS_ASPECT) {
+    canvasHeight = screenHeight;
+    canvasWidth = canvasHeight * CANVAS_ASPECT;
+  } else {
+    canvasWidth = screenWidth;
+    canvasHeight = canvasWidth / CANVAS_ASPECT;
+  }
+
+  const offsetX = (screenWidth - canvasWidth) / 2;
+  const offsetY = (screenHeight - canvasHeight) / 2;
+  const scale = canvasWidth / CANVAS_REFERENCE_WIDTH;
 
   return {
     screenWidth,
@@ -48,8 +55,8 @@ export function computeCanvasLayout(
     scale,
     canvasWidth,
     canvasHeight,
-    offsetX: 0,
-    offsetY: 0,
+    offsetX,
+    offsetY,
   };
 }
 

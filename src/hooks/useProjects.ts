@@ -6,6 +6,7 @@ import { PROJECT_FILE_VERSION } from '@/types/project';
 import { toProjectMeta } from '@/utils/format';
 import { migrateProject } from '@/utils/migrate';
 import { createProject, type CreateProjectOptions } from '@/utils/factory';
+import { deleteRepo, GithubApiError } from '@/api/github';
 
 const INDEX_KEY = '@pagebuilder/project-index';
 const PROJECTS_DIR = `${RNFS.DocumentDirectoryPath}/projects`;
@@ -132,17 +133,10 @@ export async function renameProjectMeta(
 /**
  * Create a new project file from scratch and write it to disk.
  *
- * This is the entry point used by the Create Project screen. It combines
- * three steps that always happen together:
- *   1. Build the in-memory `Project` object (with derived package and
- *      repo name).
+ * Combines three steps that always happen together:
+ *   1. Build the in-memory `Project` object.
  *   2. Write it to `DocumentDirectoryPath/projects/<id>.json`.
  *   3. Update the AsyncStorage project index.
- *
- * The caller is free to modify the returned project afterwards — for
- * example, to attach a GitHub repo (`repoOwner` / `repoUrl`) once it has
- * been created on the remote. Just call `saveProjectFile` again with the
- * updated object.
  *
  * Throws if the file system or AsyncStorage write fails.
  */
@@ -153,6 +147,48 @@ export async function createProjectRecord(
   const project = createProject(name, options);
   await saveProjectFile(project);
   return project;
+}
+
+/**
+ * Delete a project locally, and optionally its GitHub repo.
+ *
+ * `deleteProjectFile` is always called. The repo deletion is best-effort:
+ * if it fails (network, permissions, already gone), we still proceed to
+ * delete the local file, and return a status so the caller can tell the
+ * user what happened.
+ */
+export async function deleteProjectAndMaybeRepo(
+  project: Project,
+  options: { alsoDeleteRepo: boolean; token: string | null },
+): Promise<{ repoDeleted: boolean; repoError: string | null }> {
+  let repoDeleted = false;
+  let repoError: string | null = null;
+
+  const hasRepo = Boolean(project.repoOwner && project.repoName);
+  if (options.alsoDeleteRepo && hasRepo) {
+    if (!options.token || !options.token.trim()) {
+      repoError = 'No GitHub token available to delete the repo.';
+    } else {
+      try {
+        await deleteRepo(
+          options.token,
+          project.repoOwner!,
+          project.repoName!,
+        );
+        repoDeleted = true;
+      } catch (err) {
+        repoError =
+          err instanceof GithubApiError
+            ? err.message
+            : err instanceof Error
+            ? err.message
+            : 'Could not delete the repo.';
+      }
+    }
+  }
+
+  await deleteProjectFile(project.id);
+  return { repoDeleted, repoError };
 }
 
 export interface UseProjectsResult {

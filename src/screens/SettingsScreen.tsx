@@ -1,4 +1,3 @@
-
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
@@ -45,6 +44,7 @@ export default function SettingsScreen(): React.ReactElement {
   const [tokenDraft, setTokenDraft] = useState<string>('');
   const [repoDraft, setRepoDraft] = useState<string>('');
   const [verifying, setVerifying] = useState<boolean>(false);
+  const [disconnecting, setDisconnecting] = useState<boolean>(false);
 
   useEffect(() => {
     if (!hydrated) {
@@ -69,7 +69,7 @@ export default function SettingsScreen(): React.ReactElement {
     setVerifying(true);
     try {
       const user = await validateToken(token);
-      setGithubToken(token);
+      await setGithubToken(token);
       Toast.show({
         type: 'success',
         text1: 'GitHub connected',
@@ -79,6 +79,8 @@ export default function SettingsScreen(): React.ReactElement {
       const msg =
         err instanceof GithubApiError
           ? err.message
+          : err instanceof Error
+          ? err.message
           : 'Could not verify this token.';
       Toast.show({ type: 'error', text1: 'Token invalid', text2: msg });
     } finally {
@@ -86,16 +88,43 @@ export default function SettingsScreen(): React.ReactElement {
     }
   }, [setGithubToken, tokenDraft]);
 
-  const handleSaveRepo = useCallback((): void => {
+  const handleSaveRepo = useCallback(async (): Promise<void> => {
     const sanitized = sanitizeRepoName(repoDraft);
     if (!sanitized) {
       Toast.show({ type: 'error', text1: 'Repository name cannot be empty' });
       return;
     }
-    setDefaultRepoName(sanitized);
-    setRepoDraft(sanitized);
-    Toast.show({ type: 'success', text1: 'Saved' });
+    try {
+      await setDefaultRepoName(sanitized);
+      setRepoDraft(sanitized);
+      Toast.show({ type: 'success', text1: 'Saved' });
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : 'Could not save the repo name.';
+      Toast.show({
+        type: 'error',
+        text1: 'Save failed',
+        text2: msg,
+      });
+    }
   }, [repoDraft, setDefaultRepoName]);
+
+  const handleTogglePrivate = useCallback(
+    async (value: boolean): Promise<void> => {
+      try {
+        await setMakeRepoPrivate(value);
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : 'Could not save the setting.';
+        Toast.show({
+          type: 'error',
+          text1: 'Save failed',
+          text2: msg,
+        });
+      }
+    },
+    [setMakeRepoPrivate],
+  );
 
   const handleDisconnect = useCallback((): void => {
     Alert.alert(
@@ -106,10 +135,25 @@ export default function SettingsScreen(): React.ReactElement {
         {
           text: 'Disconnect',
           style: 'destructive',
-          onPress: () => {
-            void clearGithubToken();
-            setTokenDraft('');
-            Toast.show({ type: 'success', text1: 'GitHub disconnected' });
+          onPress: async () => {
+            setDisconnecting(true);
+            try {
+              await clearGithubToken();
+              setTokenDraft('');
+              Toast.show({ type: 'success', text1: 'GitHub disconnected' });
+            } catch (err) {
+              const msg =
+                err instanceof Error
+                  ? err.message
+                  : 'Could not clear the token.';
+              Toast.show({
+                type: 'error',
+                text1: 'Disconnect failed',
+                text2: `${msg} The token is still active.`,
+              });
+            } finally {
+              setDisconnecting(false);
+            }
           },
         },
       ],
@@ -191,10 +235,11 @@ export default function SettingsScreen(): React.ReactElement {
               <>
                 <View className="w-2" />
                 <Button
-                  label="Disconnect"
+                  label={disconnecting ? 'Disconnecting…' : 'Disconnect'}
                   variant="danger"
                   icon="log-out-outline"
                   onPress={handleDisconnect}
+                  loading={disconnecting}
                 />
               </>
             ) : null}
@@ -241,7 +286,9 @@ export default function SettingsScreen(): React.ReactElement {
             </View>
             <Switch
               value={makeRepoPrivate}
-              onValueChange={setMakeRepoPrivate}
+              onValueChange={value => {
+                void handleTogglePrivate(value);
+              }}
               trackColor={{ false: colors.border, true: colors.primary }}
             />
           </View>
@@ -249,7 +296,9 @@ export default function SettingsScreen(): React.ReactElement {
           <Button
             label="Save"
             icon="save-outline"
-            onPress={handleSaveRepo}
+            onPress={() => {
+              void handleSaveRepo();
+            }}
             variant="secondary"
             fullWidth
           />
@@ -260,8 +309,8 @@ export default function SettingsScreen(): React.ReactElement {
             Template Repository
           </Text>
           <Text className="text-xs text-muted dark:text-dark-muted mb-3">
-            The APK runtime is generated from this repository. Change only if you
-            forked the template.
+            The APK runtime is generated from this repository. Change only if
+            you forked the template.
           </Text>
           <Pressable
             onPress={openTemplateRepo}
@@ -293,7 +342,11 @@ export default function SettingsScreen(): React.ReactElement {
             top-right corner to build an APK for that project.
           </Text>
           <View className="bg-background dark:bg-dark-background rounded-xl p-3 flex-row items-center">
-            <Ionicons name="information-circle-outline" size={16} color={colors.primary} />
+            <Ionicons
+              name="information-circle-outline"
+              size={16}
+              color={colors.primary}
+            />
             <Text className="text-xs text-muted dark:text-dark-muted ml-2 flex-1">
               If you don't have a project open, open one from the Projects tab
               first.

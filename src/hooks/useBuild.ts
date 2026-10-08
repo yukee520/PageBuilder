@@ -734,4 +734,67 @@ export function useBuild(): UseBuildResult {
         let runId: number | null = null;
 
         for (let attempt = 0; attempt < 20; attempt += 1) {
-          if (cancelledRef.c
+          if (cancelledRef.current) return;
+          const runs = await listWorkflowRuns(
+            config.token,
+            owner,
+            targetRepoName,
+            { perPage: 5 },
+          );
+          const candidate = runs.find(
+            r => new Date(r.created_at).getTime() >= startedAt - 15000,
+          );
+          if (candidate) {
+            runId = candidate.id;
+            break;
+          }
+          await new Promise<void>(resolve => {
+            setTimeout(resolve, 5000);
+          });
+        }
+
+        if (runId === null) {
+          update({
+            phase: 'failed',
+            error:
+              'Could not find the build run. Open the repository on GitHub → Actions to check.',
+            message: 'No run detected',
+          });
+          return;
+        }
+
+        update({
+          phase: 'building',
+          message: 'Building APK on GitHub',
+          progress: 60,
+        });
+
+        await pollRun(
+          config.token,
+          owner,
+          targetRepoName,
+          runId,
+          startedAt,
+        );
+      } catch (err) {
+        const message =
+          err instanceof GithubApiError
+            ? err.message
+            : err instanceof Error
+            ? err.message
+            : 'Build failed unexpectedly.';
+        update({ phase: 'failed', error: message, message: 'Error' });
+      }
+    },
+    [clearPoll, pollRun, update],
+  );
+
+  useEffect(() => {
+    return () => {
+      cancelledRef.current = true;
+      clearPoll();
+    };
+  }, [clearPoll]);
+
+  return { state, start, reset, cancel };
+}

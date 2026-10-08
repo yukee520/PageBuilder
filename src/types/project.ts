@@ -31,6 +31,24 @@ export interface Project {
   pages: Page[];
   createdAt: number;
   updatedAt: number;
+
+  /**
+   * GitHub repository where this project's runtime and assets live.
+   *
+   * These are set at project creation time. `repoName` and `repoOwner` are
+   * the two halves of "owner/repo". `repoUrl` is the full https URL for
+   * convenience. `repoPrivate` records whether the repo is private — used
+   * by the UI to decide whether a token is required for asset access.
+   *
+   * If `repoName` is undefined, the project has not yet been linked to a
+   * GitHub repo. The editor shows a banner prompting the user to create
+   * one; the build flow creates it lazily as a fallback.
+   */
+  repoOwner?: string;
+  repoName?: string;
+  repoUrl?: string;
+  repoPrivate?: boolean;
+
   /**
    * Optional GitHub repository that hosts this project's private assets,
    * in "owner/repo" form. When set, the runtime can resolve relative asset

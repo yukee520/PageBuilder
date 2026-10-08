@@ -13,7 +13,12 @@ import {
   generateProjectId,
   generateVariableKey,
 } from '@/utils/id';
-import { sanitizePackageName, sanitizeRepoName } from '@/utils/format';
+import {
+  derivePackageName,
+  deriveRepoName,
+  sanitizePackageName,
+  sanitizeRepoName,
+} from '@/utils/format';
 import {
   DEFAULT_COMPONENT_SIZE_FRAC,
   DEFAULT_DROP_POSITION_FRAC,
@@ -33,19 +38,65 @@ export function createEmptyPage(
   };
 }
 
-export function createProject(name: string): Project {
+/**
+ * Options accepted by `createProject`.
+ *
+ * - `packageName` — the Android package ID. If omitted, derived from the
+ *   project name via `derivePackageName`. Locked to the project name in
+ *   the create screen (see Decision 2 in the Phase B plan), so this is
+ *   almost always left undefined by callers and computed here.
+ * - `repoName` — the GitHub repo name (owner comes from the token at
+ *   creation time). If omitted, derived from the project name. The user
+ *   can override this in the create form.
+ * - `repoPrivate` — whether the created repo should be private. Defaults
+ *   to `true` (recommended — anyone can still download the APK from a
+ *   GitHub Release, and private repos protect the source and assets).
+ */
+export interface CreateProjectOptions {
+  packageName?: string;
+  repoName?: string;
+  repoPrivate?: boolean;
+}
+
+export function createProject(
+  name: string,
+  options?: CreateProjectOptions,
+): Project {
   const now = Date.now();
+  const trimmedName = name.trim() || 'My App';
   const firstPage = createEmptyPage('Home', 'main');
-  const packageBase = sanitizeRepoName(name).replace(/-/g, '');
+
+  // Package name: locked to the project name. If a caller passes one
+  // explicitly, sanitize it; otherwise derive it fresh.
+  const packageName = options?.packageName
+    ? sanitizePackageName(options.packageName)
+    : derivePackageName(trimmedName);
+
+  // Repo name: user-editable in the create form. If a caller passes one,
+  // sanitize it; otherwise derive it from the project name.
+  const repoName = options?.repoName
+    ? sanitizeRepoName(options.repoName)
+    : deriveRepoName(trimmedName);
+
+  const repoPrivate = options?.repoPrivate ?? true;
+
   return {
     id: generateProjectId(),
-    name,
-    packageName: sanitizePackageName(`com.pagebuilder.${packageBase || 'app'}`),
+    name: trimmedName,
+    packageName,
     version: '1.0.0',
     startPageId: firstPage.id,
     pages: [firstPage],
     createdAt: now,
     updatedAt: now,
+    // Repo metadata: the *name* is reserved here, but the repo itself is
+    // not created until the user (or the build flow) does it. Having the
+    // name present lets the Create Project screen preview it and lets
+    // the editor banner know a repo is expected.
+    repoName,
+    repoPrivate,
+    // repoOwner and repoUrl are filled in once the repo is actually
+    // created. Leaving them undefined is what the editor banner checks.
   };
 }
 
@@ -140,6 +191,7 @@ export function createComponent(
         type: 'video',
         url: '',
         autoPlay: false,
+        loop: false,
       };
     case 'button':
       return {

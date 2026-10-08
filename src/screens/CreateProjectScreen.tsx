@@ -21,7 +21,10 @@ import Input from '@/components/Input';
 import Button from '@/components/Button';
 import { useProjectStore } from '@/store/useProjectStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { createProjectRecord } from '@/hooks/useProjects';
+import {
+  createProjectRecord,
+  saveProjectFile,
+} from '@/hooks/useProjects';
 import {
   GithubApiError,
   createRepoFromTemplate,
@@ -54,8 +57,6 @@ export default function CreateProjectScreen(): React.ReactElement {
   const templateOwner = useSettingsStore(s => s.templateOwner);
   const templateRepo = useSettingsStore(s => s.templateRepo);
 
-  // Name is the primary input. Package and repo are derived from it but
-  // editable (repo only — package is locked).
   const [name, setName] = useState<string>('');
   const [repoNameDraft, setRepoNameDraft] = useState<string>('');
   const [repoNameTouched, setRepoNameTouched] = useState<boolean>(false);
@@ -64,9 +65,6 @@ export default function CreateProjectScreen(): React.ReactElement {
   const [creating, setCreating] = useState<boolean>(false);
   const [repoPhase, setRepoPhase] = useState<RepoPhase>({ kind: 'idle' });
 
-  // Derived previews. Package is always derived from the name — the user
-  // cannot edit it. Repo name is derived but editable once the user has
-  // touched it.
   const derivedPackageName = useMemo(
     () => derivePackageName(name || 'My App'),
     [name],
@@ -81,17 +79,12 @@ export default function CreateProjectScreen(): React.ReactElement {
     ? repoNameDraft
     : derivedRepoName;
 
-  // When the user first types into the name field, seed the repo-name
-  // draft with the derived value so it's visible. After that, we do not
-  // overwrite what they've typed.
   useEffect(() => {
     if (!repoNameTouched) {
       setRepoNameDraft(derivedRepoName);
     }
   }, [derivedRepoName, repoNameTouched]);
 
-  // Prevent back-navigation while the create flow is running — the project
-  // may be half-written.
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', e => {
       if (!creating) return;
@@ -110,19 +103,6 @@ export default function CreateProjectScreen(): React.ReactElement {
     setRepoNameDraft(derivedRepoName);
   }, [derivedRepoName]);
 
-  /**
-   * The creation flow.
-   *
-   * 1. Validate the name.
-   * 2. Create the local project file.
-   * 3. If a token is available, attempt to create the GitHub repo.
-   * 4. If the repo succeeds, attach the owner and URL to the project and
-   *    save again.
-   * 5. If the repo fails (or there is no token), the local project is
-   *    still created. Show a banner in the editor prompting the user to
-   *    finish the setup.
-   * 6. Navigate to the editor.
-   */
   const handleCreate = useCallback(async (): Promise<void> => {
     if (creating) return;
 
@@ -148,6 +128,7 @@ export default function CreateProjectScreen(): React.ReactElement {
     setCreating(true);
     setRepoPhase({ kind: 'idle' });
 
+    // ── Step 1: create the local project file ─────────────────────────
     let project: Project;
     try {
       project = await createProjectRecord(trimmedName, {
@@ -163,12 +144,11 @@ export default function CreateProjectScreen(): React.ReactElement {
       return;
     }
 
-    // From here the local project exists. Even if the repo creation
-    // fails, we still want to navigate to the editor.
-
     let finalProject = project;
 
-    if (!githubToken || !githubToken.trim()) {
+    // ── Step 2: link or create the repo ───────────────────────────────
+    const liveToken = useSettingsStore.getState().githubToken;
+    if (!liveToken || !liveToken.trim()) {
       setRepoPhase({
         kind: 'failed',
         message: 'No GitHub token. Add one in Settings to create the repo.',
@@ -181,30 +161,62 @@ export default function CreateProjectScreen(): React.ReactElement {
     } else {
       setRepoPhase({ kind: 'creating' });
       try {
-        const user = await validateToken(githubToken);
+        const user = await validateToken(liveToken);
         const owner = user.login;
 
-        // If a repo with this name already exists, link to it instead of
-        // trying to create a duplicate.
-        const existing = await getRepo(githubToken, owner, sanitizedRepo);
-        const repoUrl = existing.html_url;
+        // ── Strict check ──────────────────────────────────────────────
+        // If a repo with this name already exists on GitHub, fail loudly.
+        // The user must pick a different name or unlink the existing repo
+        // themselves. Silently linking is confusing.
+        let repoExistsAlready = false;
+        try {
+          await getRepo(liveToken, owner, sanitizedRepo);
+          repoExistsAlready = true;
+        } catch (err) {
+          if (!(err instanceof GithubApiError && err.status === 404)) {
+            throw err;
+          }
+          // 404 means the repo does not exist — proceed to creation.
+        }
+
+        if (repoExistsAlready) {
+          const message = `A repo named "${owner}/${sanitizedRepo}" already exists on GitHub. Pick a different name, or open Project Settings to link to it instead.`;
+          setRepoPhase({ kind: 'failed', message });
+          Toast.show({
+            type: 'success',
+            text1: 'Project created',
+            text2: 'Repo name is taken. Retry from Project Settings.',
+          });
+          setProject(project);
+          setCreating(false);
+          setTimeout(() => {
+            navigation.replace('Editor', { projectId: project.id });
+          }, 400);
+          return;
+        }
+
+        // ── Create from template ──────────────────────────────────────
+        const created = await createRepoFromTemplate(
+          liveToken,
+          templateOwner,
+          templateRepo,
+          owner,
+          sanitizedRepo,
+          repoPrivate,
+        );
 
         finalProject = {
           ...project,
           repoOwner: owner,
-          repoUrl,
-          repoPrivate: existing.private,
+          repoUrl: created.html_url,
+          repoPrivate: created.private,
         };
-        await useProjectStore.getState().project; // (no-op; ensures store hydrated)
-
-        // Persist the updated project with repo metadata attached.
-        const { saveProjectFile } = await import('@/hooks/useProjects');
         await saveProjectFile(finalProject);
 
         setRepoPhase({
           kind: 'done',
           owner,
-          repoUrl,
+          repoUrl: created.html_url,
         });
 
         Toast.show({
@@ -213,78 +225,24 @@ export default function CreateProjectScreen(): React.ReactElement {
           text2: `Linked to ${owner}/${sanitizedRepo}`,
         });
       } catch (err) {
-        // If it's a 404, the repo doesn't exist yet — try to create it.
-        if (err instanceof GithubApiError && err.status === 404) {
-          try {
-            const user = await validateToken(githubToken);
-            const owner = user.login;
-
-            const created = await createRepoFromTemplate(
-              githubToken,
-              templateOwner,
-              templateRepo,
-              owner,
-              sanitizedRepo,
-              repoPrivate,
-            );
-
-            finalProject = {
-              ...project,
-              repoOwner: owner,
-              repoUrl: created.html_url,
-              repoPrivate: created.private,
-            };
-
-            const { saveProjectFile } = await import('@/hooks/useProjects');
-            await saveProjectFile(finalProject);
-
-            setRepoPhase({
-              kind: 'done',
-              owner,
-              repoUrl: created.html_url,
-            });
-
-            Toast.show({
-              type: 'success',
-              text1: 'Project created',
-              text2: `Linked to ${owner}/${sanitizedRepo}`,
-            });
-          } catch (createErr) {
-            const message =
-              createErr instanceof GithubApiError
-                ? createErr.message
-                : createErr instanceof Error
-                ? createErr.message
-                : 'Could not create the repo.';
-            setRepoPhase({ kind: 'failed', message });
-            Toast.show({
-              type: 'success',
-              text1: 'Project created',
-              text2: 'Repo creation failed. Retry from Project Settings.',
-            });
-          }
-        } else {
-          const message =
-            err instanceof GithubApiError
-              ? err.message
-              : err instanceof Error
-              ? err.message
-              : 'Could not verify the repo.';
-          setRepoPhase({ kind: 'failed', message });
-          Toast.show({
-            type: 'success',
-            text1: 'Project created',
-            text2: 'Repo linking failed. Retry from Project Settings.',
-          });
-        }
+        const message =
+          err instanceof GithubApiError
+            ? err.message
+            : err instanceof Error
+            ? err.message
+            : 'Could not create the repo.';
+        setRepoPhase({ kind: 'failed', message });
+        Toast.show({
+          type: 'success',
+          text1: 'Project created',
+          text2: 'Repo creation failed. Retry from Project Settings.',
+        });
       }
     }
 
     setProject(finalProject);
     setCreating(false);
 
-    // Short delay so the user can read the toast before the screen
-    // swaps. Otherwise the toast gets dismissed by the navigation.
     setTimeout(() => {
       navigation.replace('Editor', { projectId: finalProject.id });
     }, 400);
@@ -292,9 +250,8 @@ export default function CreateProjectScreen(): React.ReactElement {
     creating,
     derivedPackageName,
     effectiveRepoName,
-    githubToken,
-    name,
     navigation,
+    name,
     repoPrivate,
     setProject,
     templateOwner,
@@ -455,7 +412,7 @@ export default function CreateProjectScreen(): React.ReactElement {
             </View>
             <Text className="text-xs text-muted dark:text-dark-muted">
               {hasToken
-                ? 'We will create the repository immediately.'
+                ? 'We will create the repository immediately. If a repo with the same name already exists, we will not overwrite it — you will be asked to pick a new name.'
                 : 'Without a GitHub token, the project is created locally. You can create the repo later from Project Settings.'}
             </Text>
           </Card>

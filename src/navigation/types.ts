@@ -1,4 +1,3 @@
-
 import type { NavigatorScreenParams } from '@react-navigation/native';
 
 export type TabParamList = {
@@ -9,6 +8,7 @@ export type TabParamList = {
 
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabParamList> | undefined;
+  CreateProject: undefined;
   Editor: { projectId: string };
   ComponentEdit: {
     projectId: string;

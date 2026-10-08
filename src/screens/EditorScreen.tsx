@@ -20,6 +20,7 @@ import PageViewRenderer from '@/components/PageViewRenderer';
 import { useProject } from '@/hooks/useProject';
 import { saveProjectFile } from '@/hooks/useProjects';
 import { useProjectStore } from '@/store/useProjectStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import type { ComponentType, PageComponent } from '@/types/component';
 import { COMPONENT_TYPE_ICONS, COMPONENT_TYPE_LABELS } from '@/types/component';
 import type { RootStackParamList } from '@/navigation/types';
@@ -61,10 +62,14 @@ export default function EditorScreen(): React.ReactElement {
     s => s.toggleComponentVisibility,
   );
 
+  const githubToken = useSettingsStore(s => s.githubToken);
+
   const [showPicker, setShowPicker] = useState<boolean>(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
+  const [repoBannerDismissed, setRepoBannerDismissed] =
+    useState<boolean>(false);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasHydratedRef = useRef<boolean>(false);
@@ -348,6 +353,11 @@ export default function EditorScreen(): React.ReactElement {
     setSelectedId(null);
   }, []);
 
+  const handleRepoBannerAction = useCallback((): void => {
+    saveNow();
+    navigation.navigate('ProjectSettings', { projectId });
+  }, [navigation, projectId, saveNow]);
+
   if (loading) {
     return (
       <SafeAreaView className="flex-1 bg-background dark:bg-dark-background">
@@ -393,6 +403,15 @@ export default function EditorScreen(): React.ReactElement {
     (selectedComponent as { backgroundMode?: boolean } | null)
       ?.backgroundMode === true;
 
+  const hasLinkedRepo = Boolean(
+    storeProject.repoOwner && storeProject.repoName && storeProject.repoUrl,
+  );
+
+  const showRepoBanner =
+    !hasLinkedRepo && !repoBannerDismissed && !previewMode;
+
+  const hasToken = Boolean(githubToken && githubToken.trim());
+
   return (
     <SafeAreaView
       className="flex-1 bg-background dark:bg-dark-background"
@@ -433,6 +452,44 @@ export default function EditorScreen(): React.ReactElement {
           },
         ]}
       />
+
+      {showRepoBanner ? (
+        <View className="bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-4 py-3 flex-row items-start">
+          <View className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/50 items-center justify-center mr-3">
+            <Ionicons name="cloud-offline-outline" size={16} color="#D97706" />
+          </View>
+          <View className="flex-1 pr-2">
+            <Text className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+              {hasToken
+                ? 'No GitHub repo linked'
+                : 'No GitHub account connected'}
+            </Text>
+            <Text className="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5">
+              {hasToken
+                ? 'Create a repo so this project can be built. Tap "Set up" to finish.'
+                : 'Add a GitHub token in Settings, then create the repo for this project.'}
+            </Text>
+            <Pressable
+              onPress={handleRepoBannerAction}
+              className="self-start mt-2"
+              hitSlop={6}
+            >
+              <Text className="text-[11px] font-bold text-amber-900 dark:text-amber-200 uppercase tracking-wider">
+                {hasToken ? 'Set up repo' : 'Open settings'} →
+              </Text>
+            </Pressable>
+          </View>
+          <Pressable
+            onPress={() => setRepoBannerDismissed(true)}
+            hitSlop={8}
+            className="p-1"
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss banner"
+          >
+            <Ionicons name="close" size={14} color="#92400E" />
+          </Pressable>
+        </View>
+      ) : null}
 
       <PageTabBar
         pages={storeProject.pages}

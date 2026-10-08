@@ -17,9 +17,14 @@ import ErrorState from '@/components/ErrorState';
 import LoadingState from '@/components/LoadingState';
 import ScreenHeader from '@/components/ScreenHeader';
 import Button from '@/components/Button';
-import { useProjects } from '@/hooks/useProjects';
+import {
+  deleteProjectAndMaybeRepo,
+  loadProjectFile,
+  useProjects,
+} from '@/hooks/useProjects';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { formatRelativeTime } from '@/utils/format';
-import type { ProjectMeta } from '@/types/project';
+import type { Project, ProjectMeta } from '@/types/project';
 import type { RootStackParamList } from '@/navigation/types';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -29,10 +34,6 @@ export default function ProjectsScreen(): React.ReactElement {
   const { projects, loading, error, refresh, remove } = useProjects();
 
   // Reload the projects list every time this screen gains focus.
-  // React Navigation keeps tab screens mounted once visited, so the
-  // initial `useEffect` in `useProjects` only runs once. Without this,
-  // creating a project from the Create Project screen (or editing one
-  // from the editor) wouldn't be reflected here until app relaunch.
   useFocusEffect(
     useCallback(() => {
       void refresh();
@@ -50,6 +51,14 @@ export default function ProjectsScreen(): React.ReactElement {
     navigation.navigate('CreateProject');
   }, [navigation]);
 
+  /**
+   * Delete flow with a two-step prompt when the project has a GitHub repo.
+   *
+   * Step 1: "Delete project?" (always shown).
+   * Step 2: "Also delete the GitHub repo?" (only if the project is linked
+   *         to a repo). The user can choose to keep the repo — useful if
+   *         they want to reuse it, or archive it manually.
+   */
   const confirmDelete = useCallback(
     (meta: ProjectMeta): void => {
       Alert.alert(
@@ -58,27 +67,115 @@ export default function ProjectsScreen(): React.ReactElement {
         [
           { text: 'Cancel', style: 'cancel' },
           {
-            text: 'Delete',
+            text: 'Continue',
             style: 'destructive',
-            onPress: () => {
-              remove(meta.id)
-                .then(() => {
-                  Toast.show({
-                    type: 'success',
-                    text1: 'Project deleted',
-                  });
-                })
-                .catch((err: unknown) => {
+            onPress: async () => {
+              // Load the full project so we can inspect repo metadata.
+              let fullProject: Project | null = null;
+              try {
+                fullProject = await loadProjectFile(meta.id);
+              } catch {
+                fullProject = null;
+              }
+
+              const hasRepo = Boolean(
+                fullProject?.repoOwner && fullProject?.repoName,
+              );
+
+              if (!hasRepo) {
+                // No repo → single-step delete.
+                try {
+                  await remove(meta.id);
+                  Toast.show({ type: 'success', text1: 'Project deleted' });
+                } catch (err) {
                   const message =
                     err instanceof Error ? err.message : 'Delete failed.';
-                  Toast.show({ type: 'error', text1: 'Error', text2: message });
-                });
+                  Toast.show({
+                    type: 'error',
+                    text1: 'Error',
+                    text2: message,
+                  });
+                }
+                return;
+              }
+
+              // Repo linked → ask about it.
+              Alert.alert(
+                'Also delete the GitHub repo?',
+                `The repo "${fullProject!.repoOwner}/${fullProject!.repoName}" on GitHub can also be deleted. This cannot be undone.`,
+                [
+                  {
+                    text: 'Keep repo',
+                    style: 'cancel',
+                    onPress: async () => {
+                      try {
+                        await remove(meta.id);
+                        Toast.show({
+                          type: 'success',
+                          text1: 'Project deleted',
+                          text2: 'GitHub repo kept.',
+                        });
+                      } catch (err) {
+                        const message =
+                          err instanceof Error
+                            ? err.message
+                            : 'Delete failed.';
+                        Toast.show({
+                          type: 'error',
+                          text1: 'Error',
+                          text2: message,
+                        });
+                      }
+                    },
+                  },
+                  {
+                    text: 'Delete repo too',
+                    style: 'destructive',
+                    onPress: async () => {
+                      try {
+                        const token =
+                          useSettingsStore.getState().githubToken;
+                        const result = await deleteProjectAndMaybeRepo(
+                          fullProject!,
+                          { alsoDeleteRepo: true, token },
+                        );
+                        await refresh();
+
+                        if (result.repoDeleted) {
+                          Toast.show({
+                            type: 'success',
+                            text1: 'Project and repo deleted',
+                          });
+                        } else {
+                          Toast.show({
+                            type: 'success',
+                            text1: 'Project deleted',
+                            text2:
+                              result.repoError ??
+                              'Repo could not be deleted.',
+                          });
+                        }
+                      } catch (err) {
+                        const message =
+                          err instanceof Error
+                            ? err.message
+                            : 'Delete failed.';
+                        Toast.show({
+                          type: 'error',
+                          text1: 'Error',
+                          text2: message,
+                        });
+                      }
+                    },
+                  },
+                ],
+              );
             },
           },
         ],
       );
     },
-    [remove],
+    [refresh, remove],
   );
 
   useLayoutEffect(() => {

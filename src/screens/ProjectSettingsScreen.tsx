@@ -1,10 +1,11 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
+  Linking,
   Modal,
   Pressable,
-  ScrollView,
   Switch,
   Text,
   View,
@@ -21,20 +22,32 @@ import LoadingState from '@/components/LoadingState';
 import ErrorState from '@/components/ErrorState';
 import Card from '@/components/Card';
 import { useProject } from '@/hooks/useProject';
-import { deleteProjectFile } from '@/hooks/useProjects';
+import { deleteProjectFile, saveProjectFile } from '@/hooks/useProjects';
 import { useProjectStore } from '@/store/useProjectStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import {
   GithubApiError,
+  createRepoFromTemplate,
   getRepo,
   listRepoAudioFiles,
+  validateToken,
   type RepoAudioFile,
 } from '@/api/github';
-import { formatDate, sanitizePackageName, sanitizeRepoName } from '@/utils/format';
-import type { Page, PageType } from '@/types/project';
+import {
+  formatDate,
+  sanitizePackageName,
+  sanitizeRepoName,
+} from '@/utils/format';
+import type { Page, PageType, Project } from '@/types/project';
 import type { RootStackParamList } from '@/navigation/types';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type Rt = RouteProp<RootStackParamList, 'ProjectSettings'>;
+
+type RepoActionState =
+  | { kind: 'idle' }
+  | { kind: 'creating' }
+  | { kind: 'verifying' };
 
 export default function ProjectSettingsScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
@@ -43,6 +56,10 @@ export default function ProjectSettingsScreen(): React.ReactElement {
   const { project, loading, error, reload, save } = useProject(projectId);
   const storeSetProject = useProjectStore(s => s.setProject);
 
+  const githubToken = useSettingsStore(s => s.githubToken);
+  const templateOwner = useSettingsStore(s => s.templateOwner);
+  const templateRepo = useSettingsStore(s => s.templateRepo);
+
   const [name, setName] = useState<string>('');
   const [packageName, setPackageName] = useState<string>('');
   const [version, setVersion] = useState<string>('');
@@ -50,13 +67,16 @@ export default function ProjectSettingsScreen(): React.ReactElement {
   const [renamingPage, setRenamingPage] = useState<Page | null>(null);
   const [renameDraft, setRenameDraft] = useState<string>('');
 
-  // Private assets (project-level)
   const [assetRepoDraft, setAssetRepoDraft] = useState<string>('');
   const [assetTokenDraft, setAssetTokenDraft] = useState<string>('');
   const [savingAssets, setSavingAssets] = useState<boolean>(false);
   const [verifyingAssets, setVerifyingAssets] = useState<boolean>(false);
 
-  React.useEffect(() => {
+  const [repoAction, setRepoAction] = useState<RepoActionState>({
+    kind: 'idle',
+  });
+
+  useEffect(() => {
     if (project) {
       setName(project.name);
       setPackageName(project.packageName);
@@ -66,6 +86,10 @@ export default function ProjectSettingsScreen(): React.ReactElement {
       storeSetProject(project);
     }
   }, [project, storeSetProject]);
+
+  const hasLinkedRepo = Boolean(
+    project?.repoOwner && project?.repoName && project?.repoUrl,
+  );
 
   const handleSaveMeta = useCallback(async (): Promise<void> => {
     if (!project) return;
@@ -99,7 +123,6 @@ export default function ProjectSettingsScreen(): React.ReactElement {
     const trimmedRepo = assetRepoDraft.trim();
     const trimmedToken = assetTokenDraft.trim();
 
-    // If a repo is provided, sanity-check the "owner/repo" shape.
     if (trimmedRepo && !/^[^/\s]+\/[^/\s]+$/.test(trimmedRepo)) {
       Toast.show({
         type: 'error',
@@ -132,10 +155,7 @@ export default function ProjectSettingsScreen(): React.ReactElement {
     const trimmedRepo = assetRepoDraft.trim();
     const trimmedToken = assetTokenDraft.trim();
     if (!trimmedRepo) {
-      Toast.show({
-        type: 'error',
-        text1: 'Enter a repository first',
-      });
+      Toast.show({ type: 'error', text1: 'Enter a repository first' });
       return;
     }
     if (!/^[^/\s]+\/[^/\s]+$/.test(trimmedRepo)) {
@@ -150,19 +170,13 @@ export default function ProjectSettingsScreen(): React.ReactElement {
     const [owner, repo] = trimmedRepo.split('/');
     setVerifyingAssets(true);
     try {
-      // 1. Confirm the token can read the repo (private repos will 404 if the
-      //    token is missing/invalid).
       await getRepo(trimmedToken, owner, repo);
-
-      // 2. List audio files as a smoke test. If this succeeds, both the
-      //    token and the repo path are correct.
       let files: RepoAudioFile[] = [];
       try {
         files = await listRepoAudioFiles(trimmedToken || null, owner, repo);
       } catch {
         files = [];
       }
-
       Toast.show({
         type: 'success',
         text1: 'Access confirmed',
@@ -180,11 +194,7 @@ export default function ProjectSettingsScreen(): React.ReactElement {
           : err instanceof Error
           ? err.message
           : 'Could not verify.';
-      Toast.show({
-        type: 'error',
-        text1: 'Verification failed',
-        text2: msg,
-      });
+      Toast.show({ type: 'error', text1: 'Verification failed', text2: msg });
     } finally {
       setVerifyingAssets(false);
     }
@@ -207,6 +217,147 @@ export default function ProjectSettingsScreen(): React.ReactElement {
       ],
     );
   }, []);
+
+  /**
+   * Attach the project to a GitHub repo. Two cases:
+   *   - Repo already exists on GitHub → link to it.
+   *   - Repo does not exist → create from template.
+   *
+   * Both cases update `repoOwner`, `repoName`, `repoUrl`, and `repoPrivate`
+   * on the project and persist it.
+   */
+  const handleCreateOrLinkRepo = useCallback(async (): Promise<void> => {
+    if (!project) return;
+    if (!githubToken || !githubToken.trim()) {
+      Toast.show({
+        type: 'error',
+        text1: 'No GitHub token',
+        text2: 'Add one in Settings first.',
+      });
+      return;
+    }
+
+    const repoName = project.repoName
+      ? sanitizeRepoName(project.repoName)
+      : sanitizeRepoName(project.name);
+
+    if (!repoName) {
+      Toast.show({
+        type: 'error',
+        text1: 'Invalid repo name',
+        text2: 'Rename the project and try again.',
+      });
+      return;
+    }
+
+    setRepoAction({ kind: 'creating' });
+    try {
+      const user = await validateToken(githubToken);
+      const owner = user.login;
+
+      // Try to link to an existing repo first.
+      try {
+        const existing = await getRepo(githubToken, owner, repoName);
+        const next: Project = {
+          ...project,
+          repoOwner: owner,
+          repoName,
+          repoUrl: existing.html_url,
+          repoPrivate: existing.private,
+          updatedAt: Date.now(),
+        };
+        await save(next);
+        storeSetProject(next);
+        Toast.show({
+          type: 'success',
+          text1: 'Repo linked',
+          text2: `${owner}/${repoName}`,
+        });
+        setRepoAction({ kind: 'idle' });
+        return;
+      } catch (err) {
+        if (!(err instanceof GithubApiError && err.status === 404)) {
+          throw err;
+        }
+        // Fall through to creation.
+      }
+
+      const created = await createRepoFromTemplate(
+        githubToken,
+        templateOwner,
+        templateRepo,
+        owner,
+        repoName,
+        project.repoPrivate ?? true,
+      );
+
+      const next: Project = {
+        ...project,
+        repoOwner: owner,
+        repoName,
+        repoUrl: created.html_url,
+        repoPrivate: created.private,
+        updatedAt: Date.now(),
+      };
+      await save(next);
+      storeSetProject(next);
+      Toast.show({
+        type: 'success',
+        text1: 'Repo created',
+        text2: `${owner}/${repoName}`,
+      });
+      setRepoAction({ kind: 'idle' });
+    } catch (err) {
+      const msg =
+        err instanceof GithubApiError
+          ? err.message
+          : err instanceof Error
+          ? err.message
+          : 'Could not create or link the repo.';
+      Toast.show({ type: 'error', text1: 'Repo setup failed', text2: msg });
+      setRepoAction({ kind: 'idle' });
+    }
+  }, [
+    githubToken,
+    project,
+    save,
+    storeSetProject,
+    templateOwner,
+    templateRepo,
+  ]);
+
+  const handleOpenRepo = useCallback((): void => {
+    if (!project?.repoUrl) return;
+    Linking.openURL(project.repoUrl).catch(() => {
+      Toast.show({ type: 'error', text1: 'Could not open GitHub' });
+    });
+  }, [project?.repoUrl]);
+
+  const handleUnlinkRepo = useCallback((): void => {
+    if (!project) return;
+    Alert.alert(
+      'Unlink repository?',
+      'The GitHub repo will not be deleted. You just stop linking to it from this project.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Unlink',
+          style: 'destructive',
+          onPress: async () => {
+            const next: Project = {
+              ...project,
+              repoOwner: undefined,
+              repoUrl: undefined,
+              updatedAt: Date.now(),
+            };
+            await save(next);
+            storeSetProject(next);
+            Toast.show({ type: 'success', text1: 'Repository unlinked' });
+          },
+        },
+      ],
+    );
+  }, [project, save, storeSetProject]);
 
   const handleSetStartPage = useCallback(
     async (pageId: string): Promise<void> => {
@@ -403,6 +554,83 @@ export default function ProjectSettingsScreen(): React.ReactElement {
         contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         ListHeaderComponent={
           <View>
+            {/* ── Repository card ────────────────────────────────── */}
+            <Card className="mb-4">
+              <View className="flex-row items-center mb-3">
+                <View className="w-9 h-9 rounded-lg bg-primary/10 dark:bg-primary/20 items-center justify-center mr-3">
+                  <Ionicons name="logo-github" size={18} color="#2563EB" />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-base font-semibold text-text dark:text-dark-text">
+                    Repository
+                  </Text>
+                  <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">
+                    {hasLinkedRepo
+                      ? 'Linked. Builds push into this repo.'
+                      : 'Not linked yet.'}
+                  </Text>
+                </View>
+              </View>
+
+              {hasLinkedRepo ? (
+                <>
+                  <View className="bg-background dark:bg-dark-background rounded-xl p-3 mb-3">
+                    <Text className="text-xs font-mono text-text dark:text-dark-text">
+                      {project.repoOwner}/{project.repoName}
+                    </Text>
+                    <Text className="text-[10px] text-muted dark:text-dark-muted mt-1">
+                      {project.repoPrivate ? 'Private' : 'Public'}
+                    </Text>
+                  </View>
+
+                  <View className="flex-row flex-wrap">
+                    <Button
+                      label="Open on GitHub"
+                      icon="open-outline"
+                      variant="secondary"
+                      size="small"
+                      onPress={handleOpenRepo}
+                    />
+                    <View className="w-2" />
+                    <Button
+                      label="Unlink"
+                      icon="unlink-outline"
+                      variant="ghost"
+                      size="small"
+                      onPress={handleUnlinkRepo}
+                    />
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text className="text-xs text-muted dark:text-dark-muted mb-3">
+                    Suggested:{' '}
+                    <Text className="font-mono">
+                      {sanitizeRepoName(project.repoName ?? project.name)}
+                    </Text>
+                    {!githubToken?.trim()
+                      ? '. Add a GitHub token in Settings first.'
+                      : ' under your GitHub account.'}
+                  </Text>
+                  <Button
+                    label={
+                      repoAction.kind === 'creating'
+                        ? 'Working…'
+                        : 'Create / link repo'
+                    }
+                    icon="cloud-upload-outline"
+                    onPress={() => {
+                      void handleCreateOrLinkRepo();
+                    }}
+                    loading={repoAction.kind === 'creating'}
+                    disabled={!githubToken?.trim()}
+                    fullWidth
+                  />
+                </>
+              )}
+            </Card>
+
+            {/* ── General card ───────────────────────────────────── */}
             <Card className="mb-4">
               <Text className="text-base font-semibold text-text dark:text-dark-text mb-3">
                 General
@@ -420,7 +648,7 @@ export default function ProjectSettingsScreen(): React.ReactElement {
                 onChangeText={setPackageName}
                 placeholder="com.example.myapp"
                 autoCapitalize="none"
-                hint="Used as the Android application ID when building."
+                hint="Used as the Android application ID when building. Changing this after a build may break in-place upgrades."
                 containerClassName="mb-3"
               />
               <Input
@@ -443,6 +671,7 @@ export default function ProjectSettingsScreen(): React.ReactElement {
               </View>
             </Card>
 
+            {/* ── Private assets card ───────────────────────────── */}
             <Card className="mb-4">
               <View className="flex-row items-center mb-3">
                 <View className="w-9 h-9 rounded-lg bg-primary/10 dark:bg-primary/20 items-center justify-center mr-3">
@@ -467,9 +696,9 @@ export default function ProjectSettingsScreen(): React.ReactElement {
                 label="Repository"
                 value={assetRepoDraft}
                 onChangeText={setAssetRepoDraft}
-                placeholder="owner/repo (e.g. yukee520/my-app-assets)"
+                placeholder="owner/repo"
                 autoCapitalize="none"
-                hint="The private repo where your audio files live. Leave empty if all your assets are on public URLs."
+                hint="The private repo where your audio files live."
                 containerClassName="mb-3"
               />
 
@@ -485,16 +714,11 @@ export default function ProjectSettingsScreen(): React.ReactElement {
               />
 
               <View className="bg-danger/10 dark:bg-danger/20 rounded-xl p-3 mb-3 flex-row items-start">
-                <Ionicons
-                  name="warning-outline"
-                  size={16}
-                  color="#EF4444"
-                />
+                <Ionicons name="warning-outline" size={16} color="#EF4444" />
                 <Text className="text-xs text-danger dark:text-danger ml-2 flex-1">
                   Use a fine-grained token scoped to this one repo, with
                   read-only Contents access, and an expiry (90 days
-                  recommended). Never grant write access — the token ships
-                  inside the app.
+                  recommended). Never grant write access.
                 </Text>
               </View>
 
@@ -525,14 +749,9 @@ export default function ProjectSettingsScreen(): React.ReactElement {
                   onPress={handleClearAssets}
                 />
               </View>
-
-              <Text className="text-xs text-muted dark:text-dark-muted mt-3">
-                Create a token at github.com/settings/tokens → Fine-grained
-                tokens → Repository access: Only select repositories →
-                Permissions → Contents: Read-only.
-              </Text>
             </Card>
 
+            {/* ── Info card ──────────────────────────────────────── */}
             <Card className="mb-4">
               <Text className="text-base font-semibold text-text dark:text-dark-text mb-1">
                 Info
@@ -543,11 +762,9 @@ export default function ProjectSettingsScreen(): React.ReactElement {
               <Text className="text-xs text-muted dark:text-dark-muted mt-1">
                 Last edited {formatDate(project.updatedAt)}
               </Text>
-              <Text className="text-xs text-muted dark:text-dark-muted mt-1">
-                Repo name suggestion: {sanitizeRepoName(project.name)}
-              </Text>
             </Card>
 
+            {/* ── Onboarding card ────────────────────────────────── */}
             <Card className="mb-4">
               <Text className="text-base font-semibold text-text dark:text-dark-text mb-1">
                 Onboarding
@@ -556,9 +773,9 @@ export default function ProjectSettingsScreen(): React.ReactElement {
                 {onboardingCount} onboarding · {mainCount} main
               </Text>
               <Text className="text-xs text-muted dark:text-dark-muted">
-                Onboarding pages show only the first time the app opens. After
-                the user completes them (via a "Next onboarding page" action or
-                by skipping), the app jumps to the start page.
+                Onboarding pages show only the first time the app opens.
+                After the user completes them, the app jumps to the start
+                page.
               </Text>
             </Card>
 

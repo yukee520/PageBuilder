@@ -8,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Toast from 'react-native-toast-message';
@@ -27,6 +27,17 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 export default function ProjectsScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
   const { projects, loading, error, refresh, remove } = useProjects();
+
+  // Reload the projects list every time this screen gains focus.
+  // React Navigation keeps tab screens mounted once visited, so the
+  // initial `useEffect` in `useProjects` only runs once. Without this,
+  // creating a project from the Create Project screen (or editing one
+  // from the editor) wouldn't be reflected here until app relaunch.
+  useFocusEffect(
+    useCallback(() => {
+      void refresh();
+    }, [refresh]),
+  );
 
   const openProject = useCallback(
     (id: string): void => {

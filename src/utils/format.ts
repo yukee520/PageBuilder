@@ -1,3 +1,4 @@
+
 import type { PageComponent } from '@/types/component';
 import type { Project, ProjectMeta } from '@/types/project';
 import { COMPONENT_TYPE_LABELS, SIZE_PRESET_LABELS } from '@/types/component';
@@ -91,6 +92,15 @@ export function toProjectMeta(project: Project): ProjectMeta {
   };
 }
 
+/**
+ * Turn arbitrary user input into a GitHub-repo-safe slug.
+ *
+ * Rules:
+ *   - lowercase
+ *   - only a-z, 0-9, dash, underscore, dot
+ *   - dashes collapse, leading/trailing separators trimmed
+ *   - falls back to "my-app" if the input is empty after cleaning
+ */
 export function sanitizeRepoName(input: string): string {
   const cleaned = input
     .toLowerCase()
@@ -100,6 +110,15 @@ export function sanitizeRepoName(input: string): string {
   return cleaned || 'my-app';
 }
 
+/**
+ * Turn arbitrary user input into a Java-package-safe string.
+ *
+ * Rules:
+ *   - lowercase
+ *   - only a-z, 0-9, dot
+ *   - dots collapse, leading/trailing dots trimmed
+ *   - falls back to "com.example.myapp" if the input is empty after cleaning
+ */
 export function sanitizePackageName(input: string): string {
   const cleaned = input
     .toLowerCase()
@@ -107,4 +126,43 @@ export function sanitizePackageName(input: string): string {
     .replace(/\.+/g, '.')
     .replace(/^\.+|\.+$/g, '');
   return cleaned || 'com.example.myapp';
+}
+
+/**
+ * Derive a package name from a human-readable project name.
+ *
+ *   "My Cool App"    -> "com.pagebuilder.mycoolapp"
+ *   "学习中文 App"    -> "com.pagebuilder.app"    (non-ASCII stripped)
+ *   ""               -> "com.pagebuilder.app"
+ *
+ * The project name is reduced to alphanumeric characters only (no dashes,
+ * spaces, or non-ASCII). The result is always prefixed with `com.pagebuilder.`
+ * so it can't collide with a top-level domain the user doesn't own.
+ */
+export function derivePackageName(projectName: string): string {
+  const slug = projectName
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .slice(0, 40);
+  return `com.pagebuilder.${slug || 'app'}`;
+}
+
+/**
+ * Derive a GitHub repo name from a human-readable project name.
+ *
+ *   "My Cool App"    -> "my-cool-app"
+ *   "Cool_App 2"     -> "cool-app-2"
+ *   "学习中文 App"    -> "app"
+ *   ""               -> "my-app"
+ *
+ * This is the *suggested* repo name shown in the creation form. The user
+ * can edit it before creating the repo.
+ */
+export function deriveRepoName(projectName: string): string {
+  const slug = projectName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+  return slug || 'my-app';
 }

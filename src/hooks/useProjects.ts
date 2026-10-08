@@ -5,6 +5,7 @@ import type { Project, ProjectIndex, ProjectMeta } from '@/types/project';
 import { PROJECT_FILE_VERSION } from '@/types/project';
 import { toProjectMeta } from '@/utils/format';
 import { migrateProject } from '@/utils/migrate';
+import { createProject, type CreateProjectOptions } from '@/utils/factory';
 
 const INDEX_KEY = '@pagebuilder/project-index';
 const PROJECTS_DIR = `${RNFS.DocumentDirectoryPath}/projects`;
@@ -104,6 +105,33 @@ export async function renameProjectMeta(
     ),
   };
   await writeIndex(next);
+}
+
+/**
+ * Create a new project file from scratch and write it to disk.
+ *
+ * This is the entry point used by the Create Project screen. It combines
+ * three steps that always happen together:
+ *   1. Build the in-memory `Project` object (with derived package and
+ *      repo name).
+ *   2. Write it to `DocumentDirectoryPath/projects/<id>.json`.
+ *   3. Update the AsyncStorage project index.
+ *
+ * The caller is free to modify the returned project afterwards — for
+ * example, to attach a GitHub repo (`repoOwner` / `repoUrl`) once it has
+ * been created on the remote. Just call `saveProjectFile` again with the
+ * updated object.
+ *
+ * Throws if the file system or AsyncStorage write fails. The caller
+ * should catch and show an error toast.
+ */
+export async function createProjectRecord(
+  name: string,
+  options?: CreateProjectOptions,
+): Promise<Project> {
+  const project = createProject(name, options);
+  await saveProjectFile(project);
+  return project;
 }
 
 export interface UseProjectsResult {

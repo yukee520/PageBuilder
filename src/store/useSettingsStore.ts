@@ -11,10 +11,10 @@ export interface SettingsState {
   templateRepo: string;
   hydrated: boolean;
 
-  setGithubToken: (token: string) => void;
-  setDefaultRepoName: (name: string) => void;
-  setMakeRepoPrivate: (value: boolean) => void;
-  setTemplate: (owner: string, repo: string) => void;
+  setGithubToken: (token: string) => Promise<void>;
+  setDefaultRepoName: (name: string) => Promise<void>;
+  setMakeRepoPrivate: (value: boolean) => Promise<void>;
+  setTemplate: (owner: string, repo: string) => Promise<void>;
   hydrate: () => Promise<void>;
   clearGithubToken: () => Promise<void>;
 }
@@ -35,61 +35,57 @@ const DEFAULTS: PersistedShape = {
   templateRepo: 'rn-blank-template',
 };
 
+/**
+ * Persist settings to AsyncStorage.
+ *
+ * Errors are re-thrown so callers can surface them to the user. Silent
+ * persistence failures are worse than noisy ones: the in-memory state
+ * appears correct, but a relaunch brings back the old value — which
+ * looks like "the app ignored my change".
+ */
 async function persist(state: PersistedShape): Promise<void> {
   try {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // intentionally ignore persistence errors; UI will rehydrate on next launch
+  } catch (err) {
+    throw err instanceof Error
+      ? err
+      : new Error('Could not save settings.');
   }
+}
+
+function snapshot(s: SettingsState): PersistedShape {
+  return {
+    githubToken: s.githubToken,
+    defaultRepoName: s.defaultRepoName,
+    makeRepoPrivate: s.makeRepoPrivate,
+    templateOwner: s.templateOwner,
+    templateRepo: s.templateRepo,
+  };
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   ...DEFAULTS,
   hydrated: false,
 
-  setGithubToken: token => {
+  setGithubToken: async token => {
     set({ githubToken: token });
-    const s = get();
-    void persist({
-      githubToken: token,
-      defaultRepoName: s.defaultRepoName,
-      makeRepoPrivate: s.makeRepoPrivate,
-      templateOwner: s.templateOwner,
-      templateRepo: s.templateRepo,
-    });
+    await persist({ ...snapshot(get()), githubToken: token });
   },
 
-  setDefaultRepoName: name => {
+  setDefaultRepoName: async name => {
     set({ defaultRepoName: name });
-    const s = get();
-    void persist({
-      githubToken: s.githubToken,
-      defaultRepoName: name,
-      makeRepoPrivate: s.makeRepoPrivate,
-      templateOwner: s.templateOwner,
-      templateRepo: s.templateRepo,
-    });
+    await persist({ ...snapshot(get()), defaultRepoName: name });
   },
 
-  setMakeRepoPrivate: value => {
+  setMakeRepoPrivate: async value => {
     set({ makeRepoPrivate: value });
-    const s = get();
-    void persist({
-      githubToken: s.githubToken,
-      defaultRepoName: s.defaultRepoName,
-      makeRepoPrivate: value,
-      templateOwner: s.templateOwner,
-      templateRepo: s.templateRepo,
-    });
+    await persist({ ...snapshot(get()), makeRepoPrivate: value });
   },
 
-  setTemplate: (owner, repo) => {
+  setTemplate: async (owner, repo) => {
     set({ templateOwner: owner, templateRepo: repo });
-    const s = get();
-    void persist({
-      githubToken: s.githubToken,
-      defaultRepoName: s.defaultRepoName,
-      makeRepoPrivate: s.makeRepoPrivate,
+    await persist({
+      ...snapshot(get()),
       templateOwner: owner,
       templateRepo: repo,
     });
@@ -118,13 +114,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   clearGithubToken: async () => {
     set({ githubToken: '' });
-    const s = get();
-    await persist({
-      githubToken: '',
-      defaultRepoName: s.defaultRepoName,
-      makeRepoPrivate: s.makeRepoPrivate,
-      templateOwner: s.templateOwner,
-      templateRepo: s.templateRepo,
-    });
+    await persist({ ...snapshot(get()), githubToken: '' });
   },
 }));

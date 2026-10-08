@@ -353,10 +353,19 @@ export default function EditorScreen(): React.ReactElement {
     setSelectedId(null);
   }, []);
 
+  /**
+   * Tap on the setup banner. Two destinations depending on state:
+   *   - No token → app Settings tab (to add a GitHub token).
+   *   - Token present, repo unlinked → Project Settings (to create the repo).
+   */
   const handleRepoBannerAction = useCallback((): void => {
     saveNow();
+    if (!githubToken || !githubToken.trim()) {
+      navigation.navigate('Tabs', { screen: 'Settings' });
+      return;
+    }
     navigation.navigate('ProjectSettings', { projectId });
-  }, [navigation, projectId, saveNow]);
+  }, [githubToken, navigation, projectId, saveNow]);
 
   if (loading) {
     return (

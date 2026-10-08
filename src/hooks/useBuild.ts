@@ -632,27 +632,53 @@ export function useBuild(): UseBuildResult {
         const user = await validateToken(config.token);
         const owner = user.login;
 
-        update({
-          phase: 'creating-repo',
-          message: 'Preparing repository',
-          progress: 15,
-        });
+        // ── Repo step ────────────────────────────────────────────────
+        // If the project already has a repo attached (via Create Project
+        // or Project Settings), skip creation entirely. The build just
+        // pushes into the existing repo.
+        //
+        // Backward compatibility: old projects that were never linked
+        // still fall through to the create-from-template path below.
+        const projectHasRepo = Boolean(
+          files.project.repoName && files.project.repoName.trim(),
+        );
+        const targetRepoName = projectHasRepo
+          ? files.project.repoName!.trim()
+          : config.repoName.trim();
 
-        const exists = await repoExists(config.token, owner, config.repoName);
-        if (!exists) {
+        if (projectHasRepo) {
           update({
             phase: 'creating-repo',
-            message: `Creating repository "${config.repoName}"`,
-            progress: 20,
+            message: `Using linked repo "${targetRepoName}"`,
+            progress: 15,
           });
-          await createRepoFromTemplate(
+        } else {
+          update({
+            phase: 'creating-repo',
+            message: 'Preparing repository',
+            progress: 15,
+          });
+
+          const exists = await repoExists(
             config.token,
-            config.templateOwner,
-            config.templateRepo,
             owner,
-            config.repoName,
-            config.isPrivate,
+            targetRepoName,
           );
+          if (!exists) {
+            update({
+              phase: 'creating-repo',
+              message: `Creating repository "${targetRepoName}"`,
+              progress: 20,
+            });
+            await createRepoFromTemplate(
+              config.token,
+              config.templateOwner,
+              config.templateRepo,
+              owner,
+              targetRepoName,
+              config.isPrivate,
+            );
+          }
         }
 
         update({
@@ -664,7 +690,7 @@ export function useBuild(): UseBuildResult {
         await waitForRepoReady(
           config.token,
           owner,
-          config.repoName,
+          targetRepoName,
           'main',
           30,
           2000,
@@ -679,7 +705,7 @@ export function useBuild(): UseBuildResult {
         const actions = await buildCommitActions(
           config.token,
           owner,
-          config.repoName,
+          targetRepoName,
           files,
         );
 
@@ -692,7 +718,7 @@ export function useBuild(): UseBuildResult {
         await putFilesInOneCommit(
           config.token,
           owner,
-          config.repoName,
+          targetRepoName,
           'main',
           actions,
           'build: update from PageBuilder',
@@ -708,61 +734,4 @@ export function useBuild(): UseBuildResult {
         let runId: number | null = null;
 
         for (let attempt = 0; attempt < 20; attempt += 1) {
-          if (cancelledRef.current) return;
-          const runs = await listWorkflowRuns(
-            config.token,
-            owner,
-            config.repoName,
-            { perPage: 5 },
-          );
-          const candidate = runs.find(
-            r => new Date(r.created_at).getTime() >= startedAt - 15000,
-          );
-          if (candidate) {
-            runId = candidate.id;
-            break;
-          }
-          await new Promise<void>(resolve => {
-            setTimeout(resolve, 5000);
-          });
-        }
-
-        if (runId === null) {
-          update({
-            phase: 'failed',
-            error:
-              'Could not find the build run. Open the repository on GitHub → Actions to check.',
-            message: 'No run detected',
-          });
-          return;
-        }
-
-        update({
-          phase: 'building',
-          message: 'Building APK on GitHub',
-          progress: 60,
-        });
-
-        await pollRun(config.token, owner, config.repoName, runId, startedAt);
-      } catch (err) {
-        const message =
-          err instanceof GithubApiError
-            ? err.message
-            : err instanceof Error
-            ? err.message
-            : 'Build failed unexpectedly.';
-        update({ phase: 'failed', error: message, message: 'Error' });
-      }
-    },
-    [clearPoll, pollRun, update],
-  );
-
-  useEffect(() => {
-    return () => {
-      cancelledRef.current = true;
-      clearPoll();
-    };
-  }, [clearPoll]);
-
-  return { state, start, reset, cancel };
-}
+          if (cancelledRef.c

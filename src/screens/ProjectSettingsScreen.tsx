@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
   Linking,
@@ -22,7 +21,11 @@ import LoadingState from '@/components/LoadingState';
 import ErrorState from '@/components/ErrorState';
 import Card from '@/components/Card';
 import { useProject } from '@/hooks/useProject';
-import { deleteProjectFile, saveProjectFile } from '@/hooks/useProjects';
+import {
+  deleteProjectAndMaybeRepo,
+  deleteProjectFile,
+  saveProjectFile,
+} from '@/hooks/useProjects';
 import { useProjectStore } from '@/store/useProjectStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import {
@@ -218,14 +221,6 @@ export default function ProjectSettingsScreen(): React.ReactElement {
     );
   }, []);
 
-  /**
-   * Attach the project to a GitHub repo. Two cases:
-   *   - Repo already exists on GitHub → link to it.
-   *   - Repo does not exist → create from template.
-   *
-   * Both cases update `repoOwner`, `repoName`, `repoUrl`, and `repoPrivate`
-   * on the project and persist it.
-   */
   const handleCreateOrLinkRepo = useCallback(async (): Promise<void> => {
     if (!project) return;
     if (!githubToken || !githubToken.trim()) {
@@ -462,27 +457,100 @@ export default function ProjectSettingsScreen(): React.ReactElement {
     [project, save, storeSetProject],
   );
 
+  /**
+   * Delete project with a two-step prompt when a repo is linked.
+   *
+   *   Step 1: "Delete project?"
+   *   Step 2: "Also delete the GitHub repo?" (only if linked)
+   */
   const handleDeleteProject = useCallback((): void => {
     if (!project) return;
+
+    const projectRef = project;
+    const hasRepo = Boolean(
+      projectRef.repoOwner && projectRef.repoName,
+    );
+
+    const doLocalDelete = async (): Promise<void> => {
+      try {
+        await deleteProjectFile(projectRef.id);
+        storeSetProject(null);
+        Toast.show({ type: 'success', text1: 'Project deleted' });
+        navigation.popToTop();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Delete failed.';
+        Toast.show({ type: 'error', text1: 'Error', text2: msg });
+      }
+    };
+
     Alert.alert(
       'Delete project?',
-      `"${project.name}" and all of its data will be permanently removed. This cannot be undone.`,
+      `"${projectRef.name}" and all of its data will be permanently removed. This cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
+          text: 'Continue',
           style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteProjectFile(project.id);
-              storeSetProject(null);
-              Toast.show({ type: 'success', text1: 'Project deleted' });
-              navigation.popToTop();
-            } catch (err) {
-              const msg =
-                err instanceof Error ? err.message : 'Delete failed.';
-              Toast.show({ type: 'error', text1: 'Error', text2: msg });
+          onPress: () => {
+            if (!hasRepo) {
+              void doLocalDelete();
+              return;
             }
+
+            Alert.alert(
+              'Also delete the GitHub repo?',
+              `The repo "${projectRef.repoOwner}/${projectRef.repoName}" on GitHub can also be deleted. This cannot be undone.`,
+              [
+                {
+                  text: 'Keep repo',
+                  style: 'cancel',
+                  onPress: () => {
+                    void doLocalDelete();
+                  },
+                },
+                {
+                  text: 'Delete repo too',
+                  style: 'destructive',
+                  onPress: async () => {
+                    try {
+                      const token =
+                        useSettingsStore.getState().githubToken;
+                      const result = await deleteProjectAndMaybeRepo(
+                        projectRef,
+                        { alsoDeleteRepo: true, token },
+                      );
+                      storeSetProject(null);
+
+                      if (result.repoDeleted) {
+                        Toast.show({
+                          type: 'success',
+                          text1: 'Project and repo deleted',
+                        });
+                      } else {
+                        Toast.show({
+                          type: 'success',
+                          text1: 'Project deleted',
+                          text2:
+                            result.repoError ??
+                            'Repo could not be deleted.',
+                        });
+                      }
+                      navigation.popToTop();
+                    } catch (err) {
+                      const msg =
+                        err instanceof Error
+                          ? err.message
+                          : 'Delete failed.';
+                      Toast.show({
+                        type: 'error',
+                        text1: 'Error',
+                        text2: msg,
+                      });
+                    }
+                  },
+                },
+              ],
+            );
           },
         },
       ],
@@ -554,7 +622,6 @@ export default function ProjectSettingsScreen(): React.ReactElement {
         contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         ListHeaderComponent={
           <View>
-            {/* ── Repository card ────────────────────────────────── */}
             <Card className="mb-4">
               <View className="flex-row items-center mb-3">
                 <View className="w-9 h-9 rounded-lg bg-primary/10 dark:bg-primary/20 items-center justify-center mr-3">
@@ -630,7 +697,6 @@ export default function ProjectSettingsScreen(): React.ReactElement {
               )}
             </Card>
 
-            {/* ── General card ───────────────────────────────────── */}
             <Card className="mb-4">
               <Text className="text-base font-semibold text-text dark:text-dark-text mb-3">
                 General
@@ -671,7 +737,6 @@ export default function ProjectSettingsScreen(): React.ReactElement {
               </View>
             </Card>
 
-            {/* ── Private assets card ───────────────────────────── */}
             <Card className="mb-4">
               <View className="flex-row items-center mb-3">
                 <View className="w-9 h-9 rounded-lg bg-primary/10 dark:bg-primary/20 items-center justify-center mr-3">
@@ -751,7 +816,6 @@ export default function ProjectSettingsScreen(): React.ReactElement {
               </View>
             </Card>
 
-            {/* ── Info card ──────────────────────────────────────── */}
             <Card className="mb-4">
               <Text className="text-base font-semibold text-text dark:text-dark-text mb-1">
                 Info
@@ -764,7 +828,6 @@ export default function ProjectSettingsScreen(): React.ReactElement {
               </Text>
             </Card>
 
-            {/* ── Onboarding card ────────────────────────────────── */}
             <Card className="mb-4">
               <Text className="text-base font-semibold text-text dark:text-dark-text mb-1">
                 Onboarding
@@ -773,9 +836,8 @@ export default function ProjectSettingsScreen(): React.ReactElement {
                 {onboardingCount} onboarding · {mainCount} main
               </Text>
               <Text className="text-xs text-muted dark:text-dark-muted">
-                Onboarding pages show only the first time the app opens.
-                After the user completes them, the app jumps to the start
-                page.
+                Onboarding pages show only the first time the app opens. After
+                the user completes them, the app jumps to the start page.
               </Text>
             </Card>
 

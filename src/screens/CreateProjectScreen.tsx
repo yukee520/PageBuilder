@@ -21,10 +21,7 @@ import Input from '@/components/Input';
 import Button from '@/components/Button';
 import { useProjectStore } from '@/store/useProjectStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import {
-  createProjectRecord,
-  saveProjectFile,
-} from '@/hooks/useProjects';
+import { createProjectRecord, saveProjectFile } from '@/hooks/useProjects';
 import {
   GithubApiError,
   createRepoFromTemplate,
@@ -164,10 +161,7 @@ export default function CreateProjectScreen(): React.ReactElement {
         const user = await validateToken(liveToken);
         const owner = user.login;
 
-        // ── Strict check ──────────────────────────────────────────────
-        // If a repo with this name already exists on GitHub, fail loudly.
-        // The user must pick a different name or unlink the existing repo
-        // themselves. Silently linking is confusing.
+        // ── Strict check: reject if the repo name is already taken ────
         let repoExistsAlready = false;
         try {
           await getRepo(liveToken, owner, sanitizedRepo);
@@ -176,7 +170,7 @@ export default function CreateProjectScreen(): React.ReactElement {
           if (!(err instanceof GithubApiError && err.status === 404)) {
             throw err;
           }
-          // 404 means the repo does not exist — proceed to creation.
+          // 404 → repo does not exist, proceed to creation.
         }
 
         if (repoExistsAlready) {

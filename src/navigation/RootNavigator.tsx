@@ -1,6 +1,7 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import TabNavigator from '@/navigation/TabNavigator';
+import CreateProjectScreen from '@/screens/CreateProjectScreen';
 import EditorScreen from '@/screens/EditorScreen';
 import ComponentEditScreen from '@/screens/ComponentEditScreen';
 import ActionEditScreen from '@/screens/ActionEditScreen';
@@ -25,6 +26,11 @@ export default function RootNavigator(): React.ReactElement {
       }}
     >
       <Stack.Screen name="Tabs" component={TabNavigator} />
+      <Stack.Screen
+        name="CreateProject"
+        component={CreateProjectScreen}
+        options={{ animation: 'slide_from_bottom' }}
+      />
       <Stack.Screen name="Editor" component={EditorScreen} />
       <Stack.Screen name="ComponentEdit" component={ComponentEditScreen} />
       <Stack.Screen name="ActionEdit" component={ActionEditScreen} />

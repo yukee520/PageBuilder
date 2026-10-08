@@ -221,105 +221,146 @@ export default function ProjectSettingsScreen(): React.ReactElement {
     );
   }, []);
 
-  const handleCreateOrLinkRepo = useCallback(async (): Promise<void> => {
-    if (!project) return;
-    if (!githubToken || !githubToken.trim()) {
-      Toast.show({
-        type: 'error',
-        text1: 'No GitHub token',
-        text2: 'Add one in Settings first.',
-      });
-      return;
-    }
+const handleCreateOrLinkRepo = useCallback(async (): Promise<void> => {
+  if (!project) return;
+  if (!githubToken || !githubToken.trim()) {
+    Toast.show({
+      type: 'error',
+      text1: 'No GitHub token',
+      text2: 'Add one in Settings first.',
+    });
+    return;
+  }
 
-    const repoName = project.repoName
-      ? sanitizeRepoName(project.repoName)
-      : sanitizeRepoName(project.name);
+  const repoName = project.repoName
+    ? sanitizeRepoName(project.repoName)
+    : sanitizeRepoName(project.name);
 
-    if (!repoName) {
-      Toast.show({
-        type: 'error',
-        text1: 'Invalid repo name',
-        text2: 'Rename the project and try again.',
-      });
-      return;
-    }
+  if (!repoName) {
+    Toast.show({
+      type: 'error',
+      text1: 'Invalid repo name',
+      text2: 'Rename the project and try again.',
+    });
+    return;
+  }
 
-    setRepoAction({ kind: 'creating' });
+  setRepoAction({ kind: 'creating' });
+  try {
+    const user = await validateToken(githubToken);
+    const owner = user.login;
+
+    // ── Check whether the repo exists ─────────────────────────────
+    let existingRepo: { html_url: string; private: boolean } | null = null;
     try {
-      const user = await validateToken(githubToken);
-      const owner = user.login;
-
-      // Try to link to an existing repo first.
-      try {
-        const existing = await getRepo(githubToken, owner, repoName);
-        const next: Project = {
-          ...project,
-          repoOwner: owner,
-          repoName,
-          repoUrl: existing.html_url,
-          repoPrivate: existing.private,
-          updatedAt: Date.now(),
-        };
-        await save(next);
-        storeSetProject(next);
-        Toast.show({
-          type: 'success',
-          text1: 'Repo linked',
-          text2: `${owner}/${repoName}`,
-        });
-        setRepoAction({ kind: 'idle' });
-        return;
-      } catch (err) {
-        if (!(err instanceof GithubApiError && err.status === 404)) {
-          throw err;
-        }
-        // Fall through to creation.
-      }
-
-      const created = await createRepoFromTemplate(
-        githubToken,
-        templateOwner,
-        templateRepo,
-        owner,
-        repoName,
-        project.repoPrivate ?? true,
-      );
-
-      const next: Project = {
-        ...project,
-        repoOwner: owner,
-        repoName,
-        repoUrl: created.html_url,
-        repoPrivate: created.private,
-        updatedAt: Date.now(),
+      const existing = await getRepo(githubToken, owner, repoName);
+      existingRepo = {
+        html_url: existing.html_url,
+        private: existing.private,
       };
-      await save(next);
-      storeSetProject(next);
-      Toast.show({
-        type: 'success',
-        text1: 'Repo created',
-        text2: `${owner}/${repoName}`,
-      });
-      setRepoAction({ kind: 'idle' });
     } catch (err) {
-      const msg =
-        err instanceof GithubApiError
-          ? err.message
-          : err instanceof Error
-          ? err.message
-          : 'Could not create or link the repo.';
-      Toast.show({ type: 'error', text1: 'Repo setup failed', text2: msg });
-      setRepoAction({ kind: 'idle' });
+      if (!(err instanceof GithubApiError && err.status === 404)) {
+        throw err;
+      }
+      // 404 → repo does not exist. Fall through to creation.
     }
-  }, [
-    githubToken,
-    project,
-    save,
-    storeSetProject,
-    templateOwner,
-    templateRepo,
-  ]);
+
+    if (existingRepo) {
+      // ── Strict mode: ask before linking ──────────────────────────
+      const repoRef = existingRepo;
+      setRepoAction({ kind: 'idle' });
+      Alert.alert(
+        'Repo already exists',
+        `A repo named "${owner}/${repoName}" already exists on GitHub. Link this project to it?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Link to it',
+            onPress: async () => {
+              if (!project) return;
+              setRepoAction({ kind: 'creating' });
+              try {
+                const next: Project = {
+                  ...project,
+                  repoOwner: owner,
+                  repoName,
+                  repoUrl: repoRef.html_url,
+                  repoPrivate: repoRef.private,
+                  updatedAt: Date.now(),
+                };
+                await save(next);
+                storeSetProject(next);
+                Toast.show({
+                  type: 'success',
+                  text1: 'Repo linked',
+                  text2: `${owner}/${repoName}`,
+                });
+              } catch (err) {
+                const msg =
+                  err instanceof GithubApiError
+                    ? err.message
+                    : err instanceof Error
+                    ? err.message
+                    : 'Could not link the repo.';
+                Toast.show({
+                  type: 'error',
+                  text1: 'Linking failed',
+                  text2: msg,
+                });
+              } finally {
+                setRepoAction({ kind: 'idle' });
+              }
+            },
+          },
+        ],
+      );
+      return;
+    }
+
+    // ── No existing repo: create from template ──────────────────────
+    const created = await createRepoFromTemplate(
+      githubToken,
+      templateOwner,
+      templateRepo,
+      owner,
+      repoName,
+      project.repoPrivate ?? true,
+    );
+
+    const next: Project = {
+      ...project,
+      repoOwner: owner,
+      repoName,
+      repoUrl: created.html_url,
+      repoPrivate: created.private,
+      updatedAt: Date.now(),
+    };
+    await save(next);
+    storeSetProject(next);
+    Toast.show({
+      type: 'success',
+      text1: 'Repo created',
+      text2: `${owner}/${repoName}`,
+    });
+    setRepoAction({ kind: 'idle' });
+  } catch (err) {
+    const msg =
+      err instanceof GithubApiError
+        ? err.message
+        : err instanceof Error
+        ? err.message
+        : 'Could not create or link the repo.';
+    Toast.show({ type: 'error', text1: 'Repo setup failed', text2: msg });
+    setRepoAction({ kind: 'idle' });
+  }
+}, [
+  githubToken,
+  project,
+  save,
+  storeSetProject,
+  templateOwner,
+  templateRepo,
+]);
 
   const handleOpenRepo = useCallback((): void => {
     if (!project?.repoUrl) return;

@@ -21,16 +21,38 @@ function projectFilePath(id: string): string {
   return `${PROJECTS_DIR}/${id}.json`;
 }
 
+/**
+ * Read the project index from AsyncStorage.
+ *
+ * Two distinct outcomes:
+ *   - Nothing stored yet → return an empty index. This is a normal
+ *     first-launch state.
+ *   - Something is stored but corrupt or unreadable → throw. Callers
+ *     must NOT treat this as "empty", because writing an empty index
+ *     back would wipe every existing project entry.
+ */
 async function readIndex(): Promise<ProjectIndex> {
+  const raw = await AsyncStorage.getItem(INDEX_KEY);
+  if (!raw) return { projects: [] };
+
+  let parsed: unknown;
   try {
-    const raw = await AsyncStorage.getItem(INDEX_KEY);
-    if (!raw) return { projects: [] };
-    const parsed = JSON.parse(raw) as ProjectIndex;
-    if (!parsed || !Array.isArray(parsed.projects)) return { projects: [] };
-    return parsed;
+    parsed = JSON.parse(raw);
   } catch {
-    return { projects: [] };
+    throw new Error(
+      'Project index could not be parsed. Data may be corrupt.',
+    );
   }
+
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    !Array.isArray((parsed as ProjectIndex).projects)
+  ) {
+    throw new Error('Project index has an unexpected shape.');
+  }
+
+  return parsed as ProjectIndex;
 }
 
 async function writeIndex(index: ProjectIndex): Promise<void> {
@@ -122,8 +144,7 @@ export async function renameProjectMeta(
  * been created on the remote. Just call `saveProjectFile` again with the
  * updated object.
  *
- * Throws if the file system or AsyncStorage write fails. The caller
- * should catch and show an error toast.
+ * Throws if the file system or AsyncStorage write fails.
  */
 export async function createProjectRecord(
   name: string,

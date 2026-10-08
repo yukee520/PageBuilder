@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useState } from 'react';
+import React, { useCallback, useLayoutEffect } from 'react';
 import {
   Alert,
   FlatList,
@@ -18,9 +18,6 @@ import LoadingState from '@/components/LoadingState';
 import ScreenHeader from '@/components/ScreenHeader';
 import Button from '@/components/Button';
 import { useProjects } from '@/hooks/useProjects';
-import { useProjectStore } from '@/store/useProjectStore';
-import { createProject } from '@/utils/factory';
-import { saveProjectFile } from '@/hooks/useProjects';
 import { formatRelativeTime } from '@/utils/format';
 import type { ProjectMeta } from '@/types/project';
 import type { RootStackParamList } from '@/navigation/types';
@@ -30,8 +27,6 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 export default function ProjectsScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
   const { projects, loading, error, refresh, remove } = useProjects();
-  const setProject = useProjectStore(s => s.setProject);
-  const [creating, setCreating] = useState<boolean>(false);
 
   const openProject = useCallback(
     (id: string): void => {
@@ -40,29 +35,9 @@ export default function ProjectsScreen(): React.ReactElement {
     [navigation],
   );
 
-  const handleCreate = useCallback(async (): Promise<void> => {
-    if (creating) return;
-    setCreating(true);
-    try {
-      const timestamp = new Date().toISOString().slice(0, 10);
-      const project = createProject(`My App ${timestamp}`);
-      await saveProjectFile(project);
-      setProject(project);
-      await refresh();
-      Toast.show({
-        type: 'success',
-        text1: 'Project created',
-        text2: project.name,
-      });
-      navigation.navigate('Editor', { projectId: project.id });
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Could not create the project.';
-      Toast.show({ type: 'error', text1: 'Creation failed', text2: message });
-    } finally {
-      setCreating(false);
-    }
-  }, [creating, navigation, refresh, setProject]);
+  const openCreateProject = useCallback((): void => {
+    navigation.navigate('CreateProject');
+  }, [navigation]);
 
   const confirmDelete = useCallback(
     (meta: ProjectMeta): void => {
@@ -84,9 +59,7 @@ export default function ProjectsScreen(): React.ReactElement {
                 })
                 .catch((err: unknown) => {
                   const message =
-                    err instanceof Error
-                      ? err.message
-                      : 'Delete failed.';
+                    err instanceof Error ? err.message : 'Delete failed.';
                   Toast.show({ type: 'error', text1: 'Error', text2: message });
                 });
             },
@@ -185,11 +158,8 @@ export default function ProjectsScreen(): React.ReactElement {
         rightActions={[
           {
             icon: 'add-circle-outline',
-            onPress: () => {
-              void handleCreate();
-            },
+            onPress: openCreateProject,
             accessibilityLabel: 'New project',
-            disabled: creating,
           },
         ]}
       />
@@ -199,10 +169,8 @@ export default function ProjectsScreen(): React.ReactElement {
           icon="folder-open-outline"
           title="No projects yet"
           description="Create your first app by tapping the button below. Add pages, drop in components, and build an APK."
-          actionLabel={creating ? 'Creating…' : 'Create your first app'}
-          onAction={() => {
-            void handleCreate();
-          }}
+          actionLabel="Create your first app"
+          onAction={openCreateProject}
         />
       ) : (
         <FlatList
@@ -222,12 +190,9 @@ export default function ProjectsScreen(): React.ReactElement {
           ListFooterComponent={
             <View className="mt-4">
               <Button
-                label={creating ? 'Creating…' : 'New project'}
+                label="New project"
                 icon="add-outline"
-                onPress={() => {
-                  void handleCreate();
-                }}
-                loading={creating}
+                onPress={openCreateProject}
                 fullWidth
                 variant="secondary"
               />

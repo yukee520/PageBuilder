@@ -11,9 +11,14 @@ import type { Project } from '@/types/project';
 
 export type UploadPhase =
   | { kind: 'idle' }
-  | { kind: 'uploading'; fileName: string; kind: UploadKind }
+  | { kind: 'uploading'; fileName: string; assetKind: UploadKind }
   | { kind: 'done'; result: UploadResult; fileName: string }
-  | { kind: 'error'; message: string; kind: UploadKind; fileName: string };
+  | {
+      kind: 'error';
+      message: string;
+      assetKind: UploadKind;
+      fileName: string;
+    };
 
 export interface UploadContext {
   token: string;
@@ -23,33 +28,17 @@ export interface UploadContext {
 }
 
 export interface UseAssetUploadResult {
-  /** Current status of the hook. */
   phase: UploadPhase;
-  /** True while a file is being uploaded. */
   uploading: boolean;
-  /**
-   * Upload a local file to the repo.
-   *
-   * Returns the result on success, or `null` on failure (with the error
-   * message stored in `phase`).
-   */
   upload: (params: {
     localUri: string;
     fileName: string;
     mimeType?: string;
     kind: UploadKind;
   }) => Promise<UploadResult | null>;
-  /** Clear the phase back to idle — call after a success or error toast. */
   reset: () => void;
 }
 
-/**
- * Build the upload context from a project + a token.
- *
- * Returns null if the project isn't linked to a repo, or if no token is
- * available. Callers use this to decide whether to show the "Upload to
- * repo" button at all.
- */
 export function buildUploadContext(
   project: Project | null,
   token: string | null | undefined,
@@ -64,19 +53,6 @@ export function buildUploadContext(
   };
 }
 
-/**
- * React hook for uploading assets to the project's GitHub repo.
- *
- * The hook is deliberately narrow: it holds a single-file upload state
- * machine. Concurrent uploads aren't supported — the editor UIs are
- * single-file anyway, and this avoids a queueing layer.
- *
- * Usage:
- *   const { uploading, upload, phase } = useAssetUpload(context);
- *   ...
- *   const result = await upload({ localUri, fileName, mimeType, kind: 'image' });
- *   if (result) setComponentUri(result.url);
- */
 export function useAssetUpload(
   context: UploadContext | null,
 ): UseAssetUploadResult {
@@ -104,7 +80,7 @@ export function useAssetUpload(
           kind: 'error',
           message:
             'This project is not linked to a GitHub repo, or no token is set. Configure one in Project Settings.',
-          kind: params.kind,
+          assetKind: params.kind,
           fileName: params.fileName,
         });
         return null;
@@ -114,7 +90,7 @@ export function useAssetUpload(
       setPhase({
         kind: 'uploading',
         fileName: params.fileName,
-        kind: params.kind,
+        assetKind: params.kind,
       });
 
       try {
@@ -141,7 +117,7 @@ export function useAssetUpload(
         setPhase({
           kind: 'error',
           message,
-          kind: params.kind,
+          assetKind: params.kind,
           fileName: params.fileName,
         });
         uploadingRef.current = false;
@@ -159,11 +135,6 @@ export function useAssetUpload(
   };
 }
 
-/**
- * Turn an unknown error into a message suitable for display.
- * Uses the type guards from `assetUploader` to distinguish "user problem"
- * from "GitHub problem".
- */
 function humanizeError(err: unknown): string {
   if (err instanceof AssetUploadError) {
     if (isOversizeError(err)) {

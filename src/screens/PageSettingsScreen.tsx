@@ -24,6 +24,13 @@ import ErrorState from '@/components/ErrorState';
 import Card from '@/components/Card';
 import { useProject } from '@/hooks/useProject';
 import { useProjectStore } from '@/store/useProjectStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
+import { useAssetPicker } from '@/hooks/useAssetPicker';
+import {
+  buildUploadContext,
+  useAssetUpload,
+} from '@/hooks/useAssetUpload';
+import { formatBytes } from '@/services/assetUploader';
 import type { Page, PageType } from '@/types/project';
 import type { RootStackParamList } from '@/navigation/types';
 
@@ -37,6 +44,8 @@ export default function PageSettingsScreen(): React.ReactElement {
 
   const { project, loading, error, reload, save } = useProject(projectId);
   const storeSetProject = useProjectStore(s => s.setProject);
+  const githubToken = useSettingsStore(s => s.githubToken);
+  const { picking: pickingAsset, pickAudio } = useAssetPicker();
 
   const [title, setTitle] = useState<string>('');
   const [type, setType] = useState<PageType>('main');
@@ -45,8 +54,17 @@ export default function PageSettingsScreen(): React.ReactElement {
   const [bgmLoop, setBgmLoop] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
 
-  // Find the target page in the freshly loaded project. Recompute whenever
-  // the project changes so renames/type toggles stay in sync.
+  const uploadContext = useMemo(
+    () => buildUploadContext(project, githubToken),
+    [project, githubToken],
+  );
+  const {
+    uploading: uploadingAsset,
+    upload: uploadAsset,
+    phase: uploadPhase,
+    reset: resetUpload,
+  } = useAssetUpload(uploadContext);
+
   const page: Page | null = useMemo(() => {
     if (!project) return null;
     return project.pages.find(p => p.id === pageId) ?? null;
@@ -57,28 +75,63 @@ export default function PageSettingsScreen(): React.ReactElement {
     [project, pageId],
   );
 
-  const otherOnboardingExists = useMemo(() => {
-    if (!project) return false;
-    return project.pages.some(
-      p => p.id !== pageId && p.type === 'onboarding',
-    );
-  }, [project, pageId]);
-
-  // Sync local drafts from the loaded page.
   useEffect(() => {
     if (!page) return;
     setTitle(page.title);
     setType(page.type);
     setBgmEnabled(page.bgmEnabled === true);
     setBgmUrl(page.bgmUrl ?? '');
-    setBgmLoop(page.bgmLoop !== false); // default true
+    setBgmLoop(page.bgmLoop !== false);
   }, [page]);
 
-  // Ensure the Zustand store also knows about this project, so a return to
-  // the editor doesn't clobber our changes with a stale copy.
   useEffect(() => {
     if (project) storeSetProject(project);
   }, [project, storeSetProject]);
+
+  const handleUploadBgm = useCallback(async (): Promise<void> => {
+    if (!uploadContext) {
+      Toast.show({
+        type: 'error',
+        text1: 'Upload unavailable',
+        text2: 'Link this project to a repo first (Project Settings).',
+      });
+      return;
+    }
+    const picked = await pickAudio();
+    if (!picked) return;
+    const result = await uploadAsset({
+      localUri: picked.uri,
+      fileName: picked.fileName,
+      mimeType: picked.mimeType,
+      kind: 'audio',
+    });
+    if (!result) {
+      Toast.show({
+        type: 'error',
+        text1: 'Upload failed',
+        text2:
+          uploadPhase.kind === 'error'
+            ? uploadPhase.message
+            : 'Please try again.',
+      });
+      resetUpload();
+      return;
+    }
+    setBgmUrl(result.url);
+    setBgmEnabled(true);
+    Toast.show({
+      type: 'success',
+      text1: 'BGM uploaded',
+      text2: `${formatBytes(result.size)} — remember to Save`,
+    });
+    resetUpload();
+  }, [
+    pickAudio,
+    resetUpload,
+    uploadAsset,
+    uploadContext,
+    uploadPhase,
+  ]);
 
   const handleSave = useCallback(async (): Promise<void> => {
     if (!project || !page) return;
@@ -364,6 +417,41 @@ export default function PageSettingsScreen(): React.ReactElement {
             hint="Public https URL, or an api.github.com contents URL for a private repo (uses the project's private-assets token)."
             containerClassName="mb-3"
           />
+
+          {uploadContext ? (
+            <View className="mb-3">
+              <Button
+                label={
+                  pickingAsset || uploadingAsset
+                    ? 'Uploading…'
+                    : 'Upload audio file'
+                }
+                icon="cloud-upload-outline"
+                variant="secondary"
+                onPress={() => {
+                  void handleUploadBgm();
+                }}
+                loading={pickingAsset || uploadingAsset}
+                fullWidth
+              />
+              <Text className="text-xs text-muted dark:text-dark-muted mt-2">
+                Uploads the file to your project's GitHub repo and fills the
+                URL field above. Tap Save to apply.
+              </Text>
+            </View>
+          ) : (
+            <View className="bg-amber-50 dark:bg-amber-900/30 rounded-xl p-3 mb-3 flex-row items-start">
+              <Ionicons
+                name="information-circle-outline"
+                size={16}
+                color="#D97706"
+              />
+              <Text className="text-xs text-amber-900 dark:text-amber-200 ml-2 flex-1">
+                Link this project to a GitHub repo (Project Settings) to enable
+                direct uploads. Otherwise, paste a public URL above.
+              </Text>
+            </View>
+          )}
 
           <View className="flex-row items-center justify-between mb-3">
             <View className="flex-1 pr-3">

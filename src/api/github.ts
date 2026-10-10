@@ -74,7 +74,7 @@ function createClient(token: string | null): AxiosInstance {
 
   const client = axios.create({
     baseURL: GITHUB_API,
-    timeout: 60000,
+    timeout: 120000,
     headers,
   });
 
@@ -568,4 +568,202 @@ export async function listRepoAudioFiles(
   }
 
   return audioFiles.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  Upload helpers
+// ─────────────────────────────────────────────────────────────────────
+
+export interface PutFileResult {
+  /** The path inside the repo where the file was written. */
+  path: string;
+  /** The commit SHA for the write. */
+  commitSha: string;
+  /** Contents API URL — what the runtime will fetch. */
+  url: string;
+}
+
+/**
+ * Check whether a file exists at the given path in a repo.
+ */
+export async function fileExistsInRepo(
+  token: string,
+  owner: string,
+  repo: string,
+  path: string,
+  branch: string = 'main',
+): Promise<boolean> {
+  const client = createClient(token);
+  try {
+    await client.get(
+      `/repos/${owner}/${repo}/contents/${path
+        .split('/')
+        .map(encodeURIComponent)
+        .join('/')}`,
+      { params: { ref: branch } },
+    );
+    return true;
+  } catch (err) {
+    if (err instanceof GithubApiError && err.status === 404) return false;
+    throw err;
+  }
+}
+
+/**
+ * Upload a small file (< 1 MB) using the Contents API.
+ *
+ * If the file already exists at the path, the previous SHA is fetched
+ * and passed along so GitHub replaces the file instead of 409ing.
+ */
+export async function putFileToRepo(
+  token: string,
+  owner: string,
+  repo: string,
+  path: string,
+  contentBase64: string,
+  commitMessage: string,
+  branch: string = 'main',
+): Promise<PutFileResult> {
+  const client = createClient(token);
+  const encodedPath = path
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/');
+
+  // Look up the current file's SHA (if it exists) so we can update in
+  // place rather than fail with a conflict.
+  let existingSha: string | null = null;
+  try {
+    const existing = await client.get<GithubFileContentsResponse>(
+      `/repos/${owner}/${repo}/contents/${encodedPath}`,
+      { params: { ref: branch } },
+    );
+    if (existing.data && typeof existing.data.sha === 'string') {
+      existingSha = existing.data.sha;
+    }
+  } catch (err) {
+    if (!(err instanceof GithubApiError && err.status === 404)) {
+      throw err;
+    }
+  }
+
+  const body: Record<string, unknown> = {
+    message: commitMessage,
+    content: contentBase64,
+    branch,
+  };
+  if (existingSha) body.sha = existingSha;
+
+  const res = await client.put<{
+    content: { sha: string; path: string };
+    commit: { sha: string };
+  }>(`/repos/${owner}/${repo}/contents/${encodedPath}`, body);
+
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}`;
+
+  return {
+    path,
+    commitSha: res.data.commit.sha,
+    url: apiUrl,
+  };
+}
+
+/**
+ * Upload a larger file (1 MB to 15 MB) via the Git Data API.
+ *
+ * The Contents API chokes on large base64 bodies. This path uses three
+ * REST calls (blob → tree → commit) plus a ref update, which is heavier
+ * but handles multi-megabyte files reliably.
+ */
+export async function putLargeFileToRepo(
+  token: string,
+  owner: string,
+  repo: string,
+  path: string,
+  contentBase64: string,
+  commitMessage: string,
+  branch: string = 'main',
+): Promise<PutFileResult> {
+  const client = createClient(token);
+
+  // 1. Current tip of the branch.
+  const refRes = await client.get<GitRef>(
+    `/repos/${owner}/${repo}/git/ref/heads/${branch}`,
+  );
+  const parentCommitSha = refRes.data.object.sha;
+
+  // 2. Parent tree to build on.
+  const parentCommitRes = await client.get<GitCommit>(
+    `/repos/${owner}/${repo}/git/commits/${parentCommitSha}`,
+  );
+  const parentTreeSha = parentCommitRes.data.tree.sha;
+
+  // 3. Upload the blob.
+  const blobRes = await client.post<GitBlob>(
+    `/repos/${owner}/${repo}/git/blobs`,
+    {
+      content: contentBase64,
+      encoding: 'base64',
+    },
+  );
+
+  // 4. New tree with the file.
+  const treeRes = await client.post<GitTree>(
+    `/repos/${owner}/${repo}/git/trees`,
+    {
+      base_tree: parentTreeSha,
+      tree: [
+        {
+          path,
+          mode: '100644',
+          type: 'blob',
+          sha: blobRes.data.sha,
+        },
+      ],
+    },
+  );
+
+  // 5. New commit.
+  const newCommitRes = await client.post<GitCommit>(
+    `/repos/${owner}/${repo}/git/commits`,
+    {
+      message: commitMessage,
+      tree: treeRes.data.sha,
+      parents: [parentCommitSha],
+    },
+  );
+
+  // 6. Move the branch ref. Retry a few times in case another write
+  //    lands between our ref read and this patch.
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await client.patch(`/repos/${owner}/${repo}/git/refs/heads/${branch}`, {
+        sha: newCommitRes.data.sha,
+        force: true,
+      });
+
+      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path
+        .split('/')
+        .map(encodeURIComponent)
+        .join('/')}`;
+
+      return {
+        path,
+        commitSha: newCommitRes.data.sha,
+        url: apiUrl,
+      };
+    } catch (err) {
+      lastError = err;
+      await new Promise<void>(resolve => {
+        setTimeout(resolve, 3000);
+      });
+    }
+  }
+
+  if (lastError instanceof GithubApiError) throw lastError;
+  throw new GithubApiError(
+    'Failed to update the branch after several attempts.',
+    null,
+  );
 }

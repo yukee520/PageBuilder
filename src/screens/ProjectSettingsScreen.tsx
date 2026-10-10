@@ -362,40 +362,6 @@ const handleCreateOrLinkRepo = useCallback(async (): Promise<void> => {
   templateRepo,
 ]);
 
-    const next: Project = {
-      ...project,
-      repoOwner: owner,
-      repoName,
-      repoUrl: created.html_url,
-      repoPrivate: created.private,
-      updatedAt: Date.now(),
-    };
-    await save(next);
-    storeSetProject(next);
-    Toast.show({
-      type: 'success',
-      text1: 'Repo created',
-      text2: `${owner}/${repoName}`,
-    });
-    setRepoAction({ kind: 'idle' });
-  } catch (err) {
-    const msg =
-      err instanceof GithubApiError
-        ? err.message
-        : err instanceof Error
-        ? err.message
-        : 'Could not create or link the repo.';
-    Toast.show({ type: 'error', text1: 'Repo setup failed', text2: msg });
-    setRepoAction({ kind: 'idle' });
-  }
-}, [
-  githubToken,
-  project,
-  save,
-  storeSetProject,
-  templateOwner,
-  templateRepo,
-]);
 
   const handleOpenRepo = useCallback((): void => {
     if (!project?.repoUrl) return;

@@ -6,7 +6,7 @@ import {
   View,
   type GestureResponderEvent,
 } from 'react-native';
-import Ionicons from 'react-native-vector-icons/Ionicons';
+import Ionicons from '@react-native-vector-icons/ionicons';
 import { useTheme } from '@/hooks/useTheme';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';

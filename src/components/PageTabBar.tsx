@@ -5,7 +5,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import Ionicons from 'react-native-vector-icons/Ionicons';
+import Ionicons from '@react-native-vector-icons/ionicons';
 import type { Page } from '@/types/project';
 import { useTheme } from '@/hooks/useTheme';
 

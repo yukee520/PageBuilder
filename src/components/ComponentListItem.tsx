@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
-import Ionicons from 'react-native-vector-icons/Ionicons';
+import Ionicons from '@react-native-vector-icons/ionicons';
 import type { PageComponent } from '@/types/component';
 import { COMPONENT_TYPE_ICONS } from '@/types/component';
 import { describeComponent } from '@/utils/format';

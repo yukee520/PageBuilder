@@ -22,41 +22,40 @@ const queryClient = new QueryClient({
   },
 });
 
-type FontStatus = 'loading' | 'ready' | 'failed';
+type FontStatus = 'loading' | 'ready';
 
+/**
+ * Load the Ionicons font once at app startup.
+ *
+ * The font is bundled into the APK at
+ * `android/app/src/main/assets/fonts/Ionicons.ttf`, so `loadFont()`
+ * resolves synchronously in practice. This hook exists so the app
+ * never renders before the font is registered — that was the cause of
+ * the intermittently-blank icons on cold start.
+ *
+ * If `loadFont()` fails for any reason, we still render the app (so
+ * the user can at least see what's going on), but the icons may be
+ * blank. That's the same fallback behaviour as before, just quieter.
+ */
 function useIoniconReadiness(): FontStatus {
   const [status, setStatus] = useState<FontStatus>('loading');
 
   useEffect(() => {
     let cancelled = false;
 
-    const check = (): Promise<void> =>
-      new Promise<void>((resolve, reject) => {
-        try {
-          Ionicons.getImageSource('add', 24, '#000000')
-            .then(() => resolve())
-            .catch(() => reject(new Error('icon-load-failed')));
-        } catch {
-          reject(new Error('icon-load-failed'));
-        }
-      });
-
-    const attempt = async (): Promise<void> => {
-      for (let i = 0; i < 10; i += 1) {
-        try {
-          await check();
-          if (!cancelled) setStatus('ready');
-          return;
-        } catch {
-          await new Promise<void>(r => {
-            setTimeout(r, 300);
-          });
-        }
+    const load = async (): Promise<void> => {
+      try {
+        await Ionicons.loadFont();
+      } catch {
+        // Best-effort — no retry loop, no crash. If the font failed
+        // to load, icons will show as blank glyphs, but the rest of
+        // the app is unaffected.
+      } finally {
+        if (!cancelled) setStatus('ready');
       }
-      if (!cancelled) setStatus('failed');
     };
 
-    void attempt();
+    void load();
 
     return () => {
       cancelled = true;

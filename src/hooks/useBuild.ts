@@ -89,6 +89,31 @@ jobs:
         run: |
           npm ci --legacy-peer-deps
           npm install react-native-video@6.6.0 --legacy-peer-deps
+          npm install react-native-document-picker --legacy-peer-deps
+          npm install @react-native-vector-icons/ionicons --legacy-peer-deps
+
+      - name: Bundle icon font
+        run: |
+          # Copy Ionicons.ttf into the app's assets so icons render from
+          # the first frame on cold start.
+          FONT_SRC="node_modules/react-native-vector-icons/Fonts/Ionicons.ttf"
+          FONT_DST_DIR="android/app/src/main/assets/fonts"
+          if [ -f "$FONT_SRC" ]; then
+            mkdir -p "$FONT_DST_DIR"
+            cp "$FONT_SRC" "$FONT_DST_DIR/Ionicons.ttf"
+            echo "Copied Ionicons.ttf"
+            ls -la "$FONT_DST_DIR"
+          else
+            FONT_SRC2="node_modules/@react-native-vector-icons/ionicons/fonts/Ionicons.ttf"
+            if [ -f "$FONT_SRC2" ]; then
+              mkdir -p "$FONT_DST_DIR"
+              cp "$FONT_SRC2" "$FONT_DST_DIR/Ionicons.ttf"
+              echo "Copied Ionicons.ttf (new package path)"
+              ls -la "$FONT_DST_DIR"
+            else
+              echo "WARNING: Ionicons.ttf not found. Icons may render blank on cold start."
+            fi
+          fi
 
       - name: Unpack bundled assets
         run: |
